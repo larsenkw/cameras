@@ -1,0 +1,20 @@
+Visit: http://chev.me/arucogen/
+
+From the drop down choose: 4x4 (50, 100, 250, 1000)
+Select the tag number you want.
+Set size: 200mm
+
+Save to .svg file.
+
+Open the file in "Image Viewer".
+In the toolbar go to Image->Print.
+
+Go to the "Image Settings" tab.
+Under "Position" set center option to "Both".
+Under "Size" set unit to "millimeters" and adjust the width and height to 200mm.
+
+In the "General" tab, select "Print to File" and set the file path.
+
+The hit "print".
+
+Now you can print the pdf file and it should be the standard size we want to use.

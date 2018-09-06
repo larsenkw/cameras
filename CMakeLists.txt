@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(neuro_gesture_kinect)
+project(cameras)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -7,11 +7,18 @@ project(neuro_gesture_kinect)
 find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
+  sensor_msgs
+  std_msgs
+  image_transport
+  cv_bridge
+  image_geometry
+  geometry_msgs
+  tf
 )
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
-
+find_package(OpenCV)
 
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
@@ -79,10 +86,10 @@ find_package(catkin REQUIRED COMPONENTS
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
-#  INCLUDE_DIRS include
+INCLUDE_DIRS include
 #  LIBRARIES neuro_gesture_kinect
-#  CATKIN_DEPENDS roscpp rospy
-#  DEPENDS system_lib
+  CATKIN_DEPENDS roscpp rospy geometry_msgs std_msgs sensor_msgs cv_bridge image_geometry
+ # DEPENDS system_lib opencv3
 )
 
 ###########
@@ -91,7 +98,7 @@ catkin_package(
 
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
-# include_directories(include)
+include_directories(include)
 include_directories(
   ${catkin_INCLUDE_DIRS}
 )
@@ -102,16 +109,29 @@ include_directories(
 # )
 
 ## Declare a cpp executable
-# add_executable(neuro_gesture_kinect_node src/neuro_gesture_kinect_node.cpp)
+add_executable(picture_markers src/hw4-2.cpp)
+add_executable(marker_testing src/marker_testing.cpp)
+add_executable(save_file_node src/save_file_node.cpp)
+add_executable(camera_pose src/camera_pose.cpp)
 
 ## Add cmake target dependencies of the executable/library
 ## as an example, message headers may need to be generated before nodes
 # add_dependencies(neuro_gesture_kinect_node neuro_gesture_kinect_generate_messages_cpp)
+add_dependencies(marker_testing marker_testing_generate_messages_cpp)
 
 ## Specify libraries to link a library or executable target against
-# target_link_libraries(neuro_gesture_kinect_node
-#   ${catkin_LIBRARIES}
-# )
+target_link_libraries(picture_markers
+  ${catkin_LIBRARIES} ${OpenCV_LIBS} ${OpenCV_LIBRARIES}
+)
+target_link_libraries(marker_testing
+    ${catkin_LIBRARIES}
+)
+target_link_libraries(save_file_node
+    ${catkin_LIBRARIES}
+)
+target_link_libraries(camera_pose
+    ${catkin_LIBRARIES}
+)
 
 #############
 ## Install ##

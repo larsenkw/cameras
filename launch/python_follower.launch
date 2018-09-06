@@ -1,0 +1,10 @@
+<launch>
+  <include file="$(find turtlebot_bringup)/launch/minimal.launch" />
+  <include file="$(find skeleton_markers)/launch/markers.launch" />
+
+  <node pkg="python_follower" type="gesture_kinect.py" name="gesture_kinect" />
+
+
+
+
+</launch>
