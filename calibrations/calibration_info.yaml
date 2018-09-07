@@ -1,0 +1,21 @@
+# This file stores more details relating to each camera that the
+# calibration files go to
+#
+# The format should be as follows
+# In this file store
+# camera#:
+#     camera_type: "string with type [rgbd, rgb, depth]
+#     brand: "string with brand name [Astra, Kinect, Webcam, etc.]
+#     calibration_date: "string with date calibration was taken [YYYY-MM-DD]
+# 
+# The calibration file should be stored in [camera_package]/calibrations/ and 
+# have the name camera#_rgb.yaml or camera#_depth.yaml
+#
+# The calibration files should be loaded in the launch file under the namespace 
+# "camera#/calibration_[rgb/depth]" in order to keep from overwriting the values
+# for all the cameras
+
+camera1:
+    camera_type: "rgbd"
+    brand: "Astra"
+    calibration_date: "2018-07-09"

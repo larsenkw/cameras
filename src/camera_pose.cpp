@@ -41,9 +41,15 @@ private:
     bool display_image;         // whether the program should display the camera image in a window
                                 // with the marker outline and frame
     std::string image_name;     // name of window to display image
+
+    // Averaging window parameters
     std::vector<int> markers_of_interest; // marker IDs for tags you are using
     std::vector< std::vector<double> > quat_window; // vectors for storing a window of quaternion values for a moving-window average
     int window_size;            // size of the averaging window
+
+    // Calibration parameters
+    cv::Mat K;
+    cv::Mat distCoeffs;
 public:
     Server() : nh_("~"), quat_window(4), window_size(10)
     {
@@ -61,6 +67,8 @@ public:
 
         // TODO: need to implement reading a list of integers from a ROS param
         // and add them to the markers_of_interest vector here, default = 3
+        // This information can be found in the world.yaml file if you cycle
+        // through marker# parameters and find out how many there are.
         markers_of_interest.push_back(3);
 
         // FIXME: test topic name
@@ -71,6 +79,46 @@ public:
         image_sub = nh.subscribe<sensor_msgs::Image>(image_topic.c_str(), 1, &Server::image_callback, this);
         // Publish base_link pose from camera/marker data
         camera_pose_pub = nh_.advertise<geometry_msgs::PoseWithCovarianceStamped>(pose_topic.c_str(), 1);
+
+        //===== Load Camera Calibration Data =====//
+        // TODO: Update the calibration reading section so that it is able to
+        // find all the available cameras. These can be found in cameras.yaml in
+        // the setup_tf config folder or in calibration_info.yaml in the
+        // 'cameras' package. I'm not sure which one to use yet.
+        // Check for calibration parameters in yaml file
+        std::string key;
+        if (nh.searchParam("/camera1/calibration_rgb/camera_matrix", key)) {
+            // Grab all calibration values for intrinsic and distortion matrices
+            int rows_k;
+            nh.getParam("/camera1/calibration_rgb/camera_matrix/rows", rows_k);
+            int cols_k;
+            nh.getParam("/camera1/calibration_rgb/camera_matrix/cols", cols_k);
+            std::vector<double> K_vec(rows_k*cols_k);
+            nh.getParam("/camera1/calibration_rgb/camera_matrix/data", K_vec);
+            int rows_d;
+            nh.getParam("/camera1/calibration_rgb/distortion_coefficients/rows", rows_d);
+            int cols_d;
+            nh.getParam("/camera1/calibration_rgb/distortion_coefficients/cols", cols_d);
+            std::vector<double> dist_vec(rows_d*cols_d);
+            nh.getParam("/camera1/calibration_rgb/distortion_coefficients/data", dist_vec);
+
+            // Convert vectors to OpenCV matrices
+            double* K_array = K_vec.data(); // vectors must first be converted to arrays for use in cv::Mat()'s constructor'
+            K = cv::Mat(3, 3, CV_64F, K_array).clone();
+            double* dist_array = dist_vec.data();
+            distCoeffs = cv::Mat(5, 1, CV_64F, dist_array).clone();
+        }
+        else {
+            ROS_INFO("Calibration not found for 'camera1'\nUsing default calibration values.");
+            // Default calibration parameters for the Astra camera
+            double K_[3][3] =
+            { {570.3405151367188, 0.0, 319.5},
+            { 0.0,    570.3405151367188,   239.5 },
+            { 0.0,    0.0,        1.0 } };
+            cv::Mat K = cv::Mat(3, 3, CV_64F, K_).clone();
+            double dist_[] = { 0, 0, 0, 0, 0 };
+            cv::Mat distCoeffs = cv::Mat(5, 1, CV_64F, dist_).clone();
+        }
     }
 
     void image_callback(const sensor_msgs::ImageConstPtr &msg)
@@ -85,20 +133,6 @@ public:
         }
         // Allocate image
         cv::Mat image = cv_ptr->image;
-
-        //===== Camera calibration parameters =====//
-        // TODO: need to grab this data from the calibration .yaml file automatically
-        // This K_ matrix corresponds with the values from 'camera_matrix: data: []'
-        // in the .yaml file
-        double K_[3][3] =
-        { {570.3405151367188, 0.0, 319.5},
-        { 0.0,    570.3405151367188,   239.5 },
-        { 0.0,    0.0,        1.0 } };
-        cv::Mat K = cv::Mat(3, 3, CV_64F, K_).clone();
-        // This dist_ matrix corresponds with the values from the
-        // 'distortion_coefficient: data: []' in the .yaml file
-        double dist_[] = { 0, 0, 0, 0, 0 };
-        cv::Mat distCoeffs = cv::Mat(5, 1, CV_64F, dist_).clone();
 
         //===== Marker detection =====//
         // Select ArUco Tag dictionary
