@@ -5,3 +5,11 @@ marker1:
 marker2:
     aruco_id: 1
     size: 0.200
+    
+marker3:
+    aruco_id: 2
+    size: 0.200
+    
+marker4:
+    aruco_id: 3
+    size: 0.200

@@ -33,7 +33,7 @@ private:
     bool store_data;
     clock_t start_time;
     std::string filename;
-    std::ofstream datafile;
+    std::vector<std::ofstream*> datafiles;
 
     // ROS parameters
     std::string image_topic;    // name of topic publishing camera images
@@ -42,6 +42,8 @@ private:
                                 // the output units of the 'tvec' variable will be the same as marker_length
     std::string camera_name;    // name of the camera
     std::string image_name;     // name of window to display image
+    std::string camera_frame;   // camera frame (based off camera name)
+    std::string camera_rgb_optical_frame; // optical frame
 
     // Marker struct for storing marker parameters
     struct Marker
@@ -65,6 +67,11 @@ public:
         nh_.param<std::string>("image_name", image_name, "Image");
         nh_.param<std::string>("camera", camera_name, "camera");
         image_topic = camera_name + "/rgb/image_raw";
+        camera_frame = camera_name + "_link";
+        camera_rgb_optical_frame = camera_name + "_rgb_optical_frame";
+
+        // don't collect data until file name is sent from save_file_node
+        store_data = false;
 
         // DEBUG: print image topic
         ROS_INFO("Subscribing to image topic: %s", image_topic.c_str());
@@ -80,6 +87,9 @@ public:
         bool continue_counting = true;
         while (continue_counting) {
             std::string key;
+            std::stringstream ss;
+            ss << "/marker" << (counter+1);
+            std::string marker_name = ss.str();
             if (nh.searchParam(marker_name, key)) {
                 counter++;
                 int aruco_id;
@@ -96,6 +106,8 @@ public:
                 continue_counting = false;
             }
         }
+
+        std::cout << counter << " markers found." << std::endl;
 
         for (int i = 0; i < marker_list.size(); ++i) {
             std::cout << "Found marker " << marker_list[i].marker_number << "\n";
@@ -150,7 +162,8 @@ public:
         }
     }
 
-    void imageCallback(const sensor_msgs::ImageConstPtr &msg){
+    void imageCallback(const sensor_msgs::ImageConstPtr &msg)
+    {
         //ROS_INFO("in call back");
         cv_bridge::CvImagePtr cv_ptr;
         try {
@@ -178,138 +191,118 @@ public:
             markerIds, // detected marker IDs
             detectorParams, // algorithm parameters
             rejectedCandidates);
-        if (markerIds.size() > 0) {
-            // Draw all detected markers.
-            cv::aruco::drawDetectedMarkers(image, markerCorners, markerIds);
-            std::vector< cv::Vec3d > rvecs, tvecs;
-            cv::aruco::estimatePoseSingleMarkers(
-                markerCorners, // vector of already detected markers corners
-                markerLength, // length of the marker's side
-                K, // input 3x3 floating-point instrinsic camera matrix K
-                distCoeffs, // vector of distortion coefficients of 4, 5, 8 or 12 elements
-                rvecs, // array of output rotation vectors
-                tvecs); // array of output translation vectors
-            // Display pose for the detected marker with id=0.
-            for (unsigned int i = 0; i < markerIds.size(); i++) {
-                if (markerIds[i] == 3) {
-                    //std::cout << "rvec" << i << ": \n";
-                    //std::cout << rvecs[i] << std::endl;
+
+        // Draw all detected markers.
+        cv::aruco::drawDetectedMarkers(image, markerCorners, markerIds);
+
+        // Cycle through all detected markers and only process the ones that
+        // match ids found in marker_list
+        for (int i = 0; i < markerIds.size(); ++i) {
+            for (int j = 0; j < marker_list.size(); ++j) {
+                if (markerIds[i] == marker_list[j].aruco_id) {
+                    // Set marker length for current tag
+                    markerLength = marker_list[j].size;
+
+                    std::vector< std::vector<cv::Point2f> > markerCorners_i;
+                    markerCorners_i.push_back(markerCorners[i]);
+
+                    std::vector< cv::Vec3d > rvecs, tvecs;
+                    cv::aruco::estimatePoseSingleMarkers(
+                        markerCorners_i, // vector of already detected markers corners
+                        markerLength, // length of the marker's side
+                        K, // input 3x3 floating-point instrinsic camera matrix K
+                        distCoeffs, // vector of distortion coefficients of 4, 5, 8 or 12 elements
+                        rvecs, // array of output rotation vectors
+                        tvecs); // array of output translation vectors
+
+                    // TODO: run through all of the marker ids in marker_list and
+                    // see if any of them match the current seen markers.
+                    // If so, store the current aruco id and grab the pose
+                    // information. store the pose information in the file
+                    // with the aruco id appended to the end of the filename.
 
                     // rvec to rotation matrix using Rodrigues
                     cv::Mat rotation3x3;
-                    cv::Rodrigues(rvecs[i], rotation3x3);
+                    cv::Rodrigues(rvecs[0], rotation3x3);
                     // Convert rotation matrix to Euler angles
+                    float sy = sqrt(rotation3x3.at<double>(0,0) * rotation3x3.at<double>(0,0) +  rotation3x3.at<double>(1,0) * rotation3x3.at<double>(1,0) );
+                    bool singular = sy < 1e-6; // If
+                    float x, y, z;
+                    if (!singular)
                     {
-                        float sy = sqrt(rotation3x3.at<double>(0,0) * rotation3x3.at<double>(0,0) +  rotation3x3.at<double>(1,0) * rotation3x3.at<double>(1,0) );
-                        bool singular = sy < 1e-6; // If
-                        float x, y, z;
-                        if (!singular)
-                        {
-                            x = atan2(rotation3x3.at<double>(2,1) , rotation3x3.at<double>(2,2));
-                            y = atan2(-rotation3x3.at<double>(2,0), sy);
-                            z = atan2(rotation3x3.at<double>(1,0), rotation3x3.at<double>(0,0));
-                        }
-                        else
-                        {
-                            x = atan2(-rotation3x3.at<double>(1,2), rotation3x3.at<double>(1,1));
-                            y = atan2(-rotation3x3.at<double>(2,0), sy);
-                            z = 0;
-                        }
-                        //std::cout << "rotation: " << Vec3f(x, y, z) << std::endl;
-                        //std::cout << "translation: " << tvecs[i] << std::endl;
-                        printf("Distance: %0.3f, Y-angle: %0.3f\n", tvecs[i][2], y);
-
-                        //========== Save Data to File ==========//
-                        if (store_data) {
-                            // Get the current time
-                            clock_t now = clock();
-                            double current_sec = (double) (now-start_time) / CLOCKS_PER_SEC;
-                            std::cout << "Time: " << current_sec << std::endl;
-                            if (current_sec < 5.0) {
-                                // Store the data to the file
-                                //fprintf(datafile, "%0.10f,%0.10f,%0.10f,%0.10f,%0.10f,%0.10f\n", tvecs[i][0], tvecs[i][1], tvecs[i][2], rvecs[i][0], rvecs[i][1], rvecs[i][2]);
-                                datafile << std::fixed << std::setprecision(10) << tvecs[i][0] << "," << tvecs[i][1] << "," << tvecs[i][2] << "," << x << "," << y << "," << z << "\n";
-                            }
-                            else {
-                                // Close the file and send a message to the terminal
-                                datafile.close();
-                                store_data = false;
-                                std::cout << "Finished recording data and closed file.\n";
-                            }
-                        }
-                        //========== Save Data to File ==========//
+                        x = atan2(rotation3x3.at<double>(2,1) , rotation3x3.at<double>(2,2));
+                        y = atan2(-rotation3x3.at<double>(2,0), sy);
+                        z = atan2(rotation3x3.at<double>(1,0), rotation3x3.at<double>(0,0));
                     }
+                    else
+                    {
+                        x = atan2(-rotation3x3.at<double>(1,2), rotation3x3.at<double>(1,1));
+                        y = atan2(-rotation3x3.at<double>(2,0), sy);
+                        z = 0;
+                    }
+
+                    //========== Save Data to File ==========//
+                    if (store_data) {
+                        // Get the current time
+                        clock_t now = clock();
+                        double current_sec = (double) (now-start_time) / CLOCKS_PER_SEC;
+                        std::cout << "Time: " << current_sec << std::endl;
+                        if (current_sec < 5.0) {
+                            // Store the data to the file
+                            //fprintf(datafile, "%0.10f,%0.10f,%0.10f,%0.10f,%0.10f,%0.10f\n", tvecs[i][0], tvecs[i][1], tvecs[i][2], rvecs[i][0], rvecs[i][1], rvecs[i][2]);
+                            *datafiles[j] << std::fixed << std::setprecision(10) << tvecs[0][0] << "," << tvecs[0][1] << "," << tvecs[0][2] << "," << x << "," << y << "," << z << "\n";
+                        }
+                        else {
+                            // Close all files and send a message to the terminal
+                            for (int i_list = 0; i_list < marker_list.size(); ++i_list) {
+                                datafiles[i_list]->close();
+                            }
+                            store_data = false;
+                            std::cout << "Finished recording data and closed file.\n";
+                        }
+                    }
+                    //========== Save Data to File ==========//
+
                     // Convert rotation matrix to quaternion
-                    double theta = (double)(sqrt(rvecs[i][0]*rvecs[i][0] + rvecs[i][1]*rvecs[i][1] + rvecs[i][2]*rvecs[i][2]));
+                    double theta = (double)(sqrt(rvecs[0][0]*rvecs[0][0] + rvecs[0][1]*rvecs[0][1] + rvecs[0][2]*rvecs[0][2]));
                     cv::Vec3d axis;
-                    axis[0] = rvecs[i][0]/theta;
-                    axis[1] = rvecs[i][1]/theta;
-                    axis[2] = rvecs[i][2]/theta;
+                    axis[0] = rvecs[0][0]/theta;
+                    axis[1] = rvecs[0][1]/theta;
+                    axis[2] = rvecs[0][2]/theta;
                     // Calculate quaternion from angle-axis representation
-                    double w, x, y, z;
-                    w = (0.5)*sqrt((rotation3x3.at<double>(0,0)+rotation3x3.at<double>(1,1)+rotation3x3.at<double>(2,2)) + 1);
-                    x = (rotation3x3.at<double>(2,1) - rotation3x3.at<double>(1,2))/(4*w);
-                    y = (rotation3x3.at<double>(0,2) - rotation3x3.at<double>(2,0))/(4*w);
-                    z = (rotation3x3.at<double>(1,0) - rotation3x3.at<double>(0,1))/(4*w);
+                    double qw, qx, qy, qz;
+                    qw = (0.5)*sqrt((rotation3x3.at<double>(0,0)+rotation3x3.at<double>(1,1)+rotation3x3.at<double>(2,2)) + 1);
+                    qx = (rotation3x3.at<double>(2,1) - rotation3x3.at<double>(1,2))/(4*qw);
+                    qy = (rotation3x3.at<double>(0,2) - rotation3x3.at<double>(2,0))/(4*qw);
+                    qz = (rotation3x3.at<double>(1,0) - rotation3x3.at<double>(0,1))/(4*qw);
                     //std::cout << "magnitude of q: " << sqrt(q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3]) << std::endl;
 
                     // Broadcast transform of pose for tag
                     static tf::TransformBroadcaster br;
                     tf::Transform transform;
-                    transform.setOrigin(tf::Vector3(tvecs[i][0], tvecs[i][1], tvecs[i][2]));
-                    tf::Quaternion q(x,y,z,w);
+                    transform.setOrigin(tf::Vector3(tvecs[0][0], tvecs[0][1], tvecs[0][2]));
+                    tf::Quaternion q(qx,qy,qz,qw);
                     transform.setRotation(q);
-                    br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "/camera_rgb_optical_frame", "/marker_frame"));
-                }
+                    std::stringstream ss;
+                    ss << "/marker" << marker_list[j].marker_number << "_frame";
+                    std::string marker_frame = ss.str();
+                    br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), camera_rgb_optical_frame, marker_frame));
 
-                if (markerIds[i] == 3) {
-                    cv::Vec3d r = rvecs[i];
-                    cv::Vec3d t = tvecs[i];
+                    cv::Vec3d r = rvecs[0];
+                    cv::Vec3d t = tvecs[0];
                     // Draw coordinate axes.
                     cv::aruco::drawAxis(image,
                         K, distCoeffs, // camera parameters
                         r, t, // marker pose
                         0.5*markerLength); // length of the axes to be drawn
-                    // Draw a symbol in the upper right corner of the detected marker.
-                    //std::vector<cv::Point3d> pointsInterest, pointsInterest2;
-                    //pointsInterest.push_back(cv::Point3d(markerLength / 2, markerLength / 2, 1));
-                    //pointsInterest.push_back(cv::Point3d(2.5, 6.0, -4.0));
-                    //std::vector<cv::Point2d> p, p2;
-                    //cv::projectPoints(pointsInterest, rvecs[i], tvecs[i], K, distCoeffs, p);
-                    //cv::projectPoints(pointsInterest2, rvecs[i], tvecs[i], K, distCoeffs, p2);
-                    //printf("%f",p[0]);
-                    //p[0] = (p[0] + p2[0]) / 2;
-
-                    //cv::drawMarker(image,p[0],cv::Scalar(0, 255, 255),cv::MARKER_STAR, 20,2); // thickness
-                    // cv::circle(image,p[0],20,cv::Scalar(0, 255, 255),2);
-                }
-
-                if (markerIds[i] == 2) {
-                    cv::Vec3d r = rvecs[i];
-                    cv::Vec3d t = tvecs[i];
-                    // Draw coordinate axes.
-                    cv::aruco::drawAxis(image,K, distCoeffs,r, t, 0.5*markerLength); // length of the axes to be drawn
-                                         // Draw a symbol in the upper right corner of the detected marker.
-                    std::vector<cv::Point3d> pointsInterest, pointsInterest2;
-                    //pointsInterest.push_back(cv::Point3d(markerLength / 2, markerLength / 2, 1));
-                    pointsInterest.push_back(cv::Point3d(5.5, -1.0, 3));
-                    std::vector<cv::Point2d> p, p2;
-                    cv::projectPoints(pointsInterest, rvecs[i], tvecs[i], K, distCoeffs, p);
-                    //cv::projectPoints(pointsInterest2, rvecs[i], tvecs[i], K, distCoeffs, p2);
-                    //printf("%f",p[0]);
-                    //p[0] = (p[0] + p2[0]) / 2;
-
-                    cv::drawMarker(image, p[0], cv::Scalar(0, 255, 255),cv::MARKER_STAR, 20,2); // thickness
-                    //  cv::circle(image, p[0], 20,cv::Scalar(0, 255, 255), 2);
                 }
             }
         }
 
-        cv::imshow("Image", image); // show image
-                                    // Wait for x ms (0 means wait until a keypress).
-                                    // Returns -1 if no key is hit.
-
-        //imshow("Image",cv_ptr->image);
+        // show image with axes drawn
+        cv::imshow("Image", image);
+        // Wait for x ms (0 means wait until a keypress).
+        // Returns -1 if no key is hit.
         cvWaitKey(100);
         //ROS_INFO("in call back");
     }
@@ -320,11 +313,26 @@ public:
         // Begin storing data
         std::cout << "Starting data collection . . .\n";
         store_data = true;
-        std::string pathname = "/home/turtlebot/catkin_ws/src/pose_estimation/src/data/";
+        std::string pathname = "/home/turtlebot/forklift/src/cameras/data/";
         pathname += filename;
-        datafile.open(pathname.c_str());
-        datafile << "distance x [m],distance y [m],distance z [m],angle x [rad],angle y [rad],angle z [rad]\n";
+        for (int i_list = 0; i_list < marker_list.size(); ++i_list) {
+            std::ofstream* datafile;
+            datafile = new std::ofstream;
+            datafiles.push_back(datafile);
+            std::stringstream ss;
+            ss << pathname << "_id" << marker_list[i_list].aruco_id << ".csv";
+            std::string fullpath = ss.str();
+            datafiles[i_list]->open(fullpath.c_str());
+            *datafiles[i_list] << "distance x [m],distance y [m],distance z [m],angle x [rad],angle y [rad],angle z [rad]\n";
+        }
         start_time = clock();
+    }
+
+    ~Server()
+    {
+        for (int i = 0; i < datafiles.size(); ++i) {
+            delete datafiles[i];
+        }
     }
 };
 
