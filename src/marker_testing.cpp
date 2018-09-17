@@ -313,7 +313,7 @@ public:
         // Begin storing data
         std::cout << "Starting data collection . . .\n";
         store_data = true;
-        std::string pathname = "/home/turtlebot/forklift/src/cameras/data/";
+        std::string pathname = "/home/turtlebot/forklift_ws/src/cameras/data/";
         pathname += filename;
         for (int i_list = 0; i_list < marker_list.size(); ++i_list) {
             std::ofstream* datafile;
