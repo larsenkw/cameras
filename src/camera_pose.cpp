@@ -87,20 +87,20 @@ public:
         // 'cameras' package. I'm not sure which one to use yet.
         // Check for calibration parameters in yaml file
         std::string key;
-        if (nh.searchParam("/camera1/calibration_rgb/camera_matrix", key)) {
+        if (nh.searchParam("/" + camera_name + "/calibration_rgb/camera_matrix", key)) {
             // Grab all calibration values for intrinsic and distortion matrices
             int rows_k;
-            nh.getParam("/camera1/calibration_rgb/camera_matrix/rows", rows_k);
+            nh.getParam("/" + camera_name + "/calibration_rgb/camera_matrix/rows", rows_k);
             int cols_k;
-            nh.getParam("/camera1/calibration_rgb/camera_matrix/cols", cols_k);
+            nh.getParam("/" + camera_name + "/calibration_rgb/camera_matrix/cols", cols_k);
             std::vector<double> K_vec(rows_k*cols_k);
-            nh.getParam("/camera1/calibration_rgb/camera_matrix/data", K_vec);
+            nh.getParam("/" + camera_name + "/calibration_rgb/camera_matrix/data", K_vec);
             int rows_d;
-            nh.getParam("/camera1/calibration_rgb/distortion_coefficients/rows", rows_d);
+            nh.getParam("/" + camera_name + "/calibration_rgb/distortion_coefficients/rows", rows_d);
             int cols_d;
-            nh.getParam("/camera1/calibration_rgb/distortion_coefficients/cols", cols_d);
+            nh.getParam("/" + camera_name + "/calibration_rgb/distortion_coefficients/cols", cols_d);
             std::vector<double> dist_vec(rows_d*cols_d);
-            nh.getParam("/camera1/calibration_rgb/distortion_coefficients/data", dist_vec);
+            nh.getParam("/" + camera_name + "/calibration_rgb/distortion_coefficients/data", dist_vec);
 
             // Convert vectors to OpenCV matrices
             double* K_array = K_vec.data(); // vectors must first be converted to arrays for use in cv::Mat()'s constructor'
@@ -109,7 +109,7 @@ public:
             distCoeffs = cv::Mat(5, 1, CV_64F, dist_array).clone();
         }
         else {
-            ROS_INFO("Calibration not found for 'camera1'\nUsing default calibration values.");
+            ROS_INFO("Calibration not found for '%s'\nUsing default calibration values.", camera_name.c_str());
             // Default calibration parameters for the Astra camera
             double K_[3][3] =
             { {570.3405151367188, 0.0, 319.5},
