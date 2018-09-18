@@ -8,14 +8,17 @@
 
     <!-- Load Camera Calibrations -->
     <group ns="camera1/calibration_rgb">
-        <rosparam file="$(find cameras)/calibrations/camera1_rgb.yaml" command="load" />
+        <rosparam file="$(find cameras)/calibrations/$(arg camera)_rgb.yaml" command="load" />
     </group>
 
     <!-- Load markers -->
     <rosparam file="$(find cameras)/markers/marker_list.yaml" command="load" />
 
     <!-- Camera Node -->
-    <include file="$(find astra_launch)/launch/astra.launch">
+    <include file="$(find astra_launch)/launch/astrapro.launch">
+        <arg name="camera" value="$(arg camera)" />
+    </include>
+    <include file="$(find usb_cam)/launch/astrapro_rgb.launch">
         <arg name="camera" value="$(arg camera)" />
     </include>
     <node pkg="cameras" name="marker_testing" type="marker_testing" respawn="true" output="screen">

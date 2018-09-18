@@ -1,4 +1,5 @@
-#include "stdio.h"
+#include <stdio.h>
+#include <stdlib.h>
 #include <ros/ros.h>
 #include <std_msgs/String.h>
 #include <stdlib.h>
@@ -253,12 +254,7 @@ public:
                             *datafiles[j] << std::fixed << std::setprecision(10) << tvecs[0][0] << "," << tvecs[0][1] << "," << tvecs[0][2] << "," << x << "," << y << "," << z << "\n";
                         }
                         else {
-                            // Close all files and send a message to the terminal
-                            for (int i_list = 0; i_list < marker_list.size(); ++i_list) {
-                                datafiles[i_list]->close();
-                            }
-                            store_data = false;
-                            std::cout << "Finished recording data and closed file.\n";
+                            closeAllFiles();
                         }
                     }
                     //========== Save Data to File ==========//
@@ -299,6 +295,16 @@ public:
             }
         }
 
+        // Close the files if no markers are seen and time is up
+        if (store_data) {
+            // Get the current time
+            clock_t now = clock();
+            double current_sec = (double) (now-start_time) / CLOCKS_PER_SEC;
+            if (current_sec > 5.0) {
+                closeAllFiles();
+            }
+        }
+
         // show image with axes drawn
         cv::imshow("Image", image);
         // Wait for x ms (0 means wait until a keypress).
@@ -313,7 +319,8 @@ public:
         // Begin storing data
         std::cout << "Starting data collection . . .\n";
         store_data = true;
-        std::string pathname = "/home/turtlebot/forklift_ws/src/cameras/data/";
+        std::string user_name = std::getenv("USER");
+        std::string pathname = "/home/" + user_name + "/forklift_ws/src/cameras/data/";
         pathname += filename;
         for (int i_list = 0; i_list < marker_list.size(); ++i_list) {
             std::ofstream* datafile;
@@ -326,6 +333,23 @@ public:
             *datafiles[i_list] << "distance x [m],distance y [m],distance z [m],angle x [rad],angle y [rad],angle z [rad]\n";
         }
         start_time = clock();
+    }
+
+    void closeAllFiles()
+    {
+        // Close all files and send a message to the terminal
+        for (int i_list = 0; i_list < marker_list.size(); ++i_list) {
+            datafiles[i_list]->close();
+        }
+
+        for (int i = 0; i < datafiles.size(); ++i) {
+            delete datafiles[i];
+        }
+
+        datafiles.clear();
+
+        store_data = false;
+        std::cout << "Finished recording data and closed file.\n";
     }
 
     ~Server()
