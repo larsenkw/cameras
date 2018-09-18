@@ -4,10 +4,10 @@
     <arg name="debug" default="true" />
 
     <!-- set names of sensors -->
-    <arg name="camera" default="camera1" />
+    <arg name="camera" default="astrapro" />
 
     <!-- Load Camera Calibrations -->
-    <group ns="camera1/calibration_rgb">
+    <group ns="$(arg camera)/calibration_rgb">
         <rosparam file="$(find cameras)/calibrations/$(arg camera)_rgb.yaml" command="load" />
     </group>
 
