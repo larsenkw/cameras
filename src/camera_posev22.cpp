@@ -367,7 +367,7 @@ public:
             int ID_min;
             int num_mar =0;
 
-            std::cout<<"this is marker list size : "<< marker_list.size()<<" this is detect size : "<<markerIds.size()<<std::endl;
+            std::cout<<"This is marker list size : "<< marker_list.size()<<" This is detect size : "<<markerIds.size()<<std::endl;
 
             std::cout << "Number 4" << std::endl;
 
@@ -437,6 +437,8 @@ public:
             // camera_T_marker: dynamic transform found by this code, (pose_averaged)
             tf::StampedTransform world_T_odom;
             tf::StampedTransform world_T_marker1;
+            tf::StampedTransform world_T_marker2;
+
             tf::StampedTransform base_link_T_camera_link;
             tf::StampedTransform camera_link_T_camera_rgb_optical;
             tf::StampedTransform camera_rgb_optical_T_marker1;
@@ -447,7 +449,8 @@ public:
                 listener.lookupTransform("world", "odom", ros::Time(0), world_T_odom);
                 listener.lookupTransform("world", "marker1", ros::Time(0), world_T_marker1);
                 listener.lookupTransform("base_link", camera_link, ros::Time(0), base_link_T_camera_link);
-                listener.lookupTransform(camera_link, camera_name + "_rgb_optical_frame", ros::Time(0), camera_link_T_camera_rgb_optical);
+                listener.lookupTransform(camera_link, camera_name1 + "_rgb_optical_frame", ros::Time(0), camera_link_T_camera_rgb_optical);
+                listener.lookupTransform(camera_link, camera_name2 + "_rgb_optical_frame", ros::Time(0), camera_link_T_camera_rgb_optical);
             }
             catch (tf::TransformException &ex) {
                 ROS_ERROR("%s", ex.what());

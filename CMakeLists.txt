@@ -113,13 +113,15 @@ add_executable(picture_markers src/hw4-2.cpp)
 add_executable(marker_testing src/marker_testing.cpp)
 add_executable(save_file_node src/save_file_node.cpp)
 add_executable(camera_pose src/camera_pose.cpp)
-#add_executable(camera_posev1 src/camera_posev1.cpp)
+add_executable(camera_posev11 src/camera_posev11.cpp)
+
 
 ## Add cmake target dependencies of the executable/library
 ## as an example, message headers may need to be generated before nodes
 # add_dependencies(neuro_gesture_kinect_node neuro_gesture_kinect_generate_messages_cpp)
 add_dependencies(marker_testing marker_testing_generate_messages_cpp)
-#add_dependencies(camera_posev1 camera_posev1_generate_messages_cpp)
+add_dependencies(camera_posev11 camera_posev11_generate_messages_cpp)
+##add_dependencies(camera_posev11 camera_posev11_generate_messages_cpp)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(picture_markers
@@ -134,9 +136,9 @@ target_link_libraries(save_file_node
 target_link_libraries(camera_pose
     ${catkin_LIBRARIES}
 )
-#target_link_libraries(camera_posev1
-#    ${catkin_LIBRARIES}
-#)
+target_link_libraries(camera_posev11
+    ${catkin_LIBRARIES}
+)
 
 #############
 ## Install ##
