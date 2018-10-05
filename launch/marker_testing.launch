@@ -4,7 +4,7 @@
     <arg name="debug" default="true" />
 
     <!-- set names of sensors -->
-    <arg name="camera" default="astrapro" />
+    <arg name="camera" default="camera1" />
 
     <!-- Load Camera Calibrations -->
     <group ns="$(arg camera)/calibration_rgb">
