@@ -4,7 +4,7 @@
     <arg name="debug" default="true" />
 
     <!-- set names of sensors -->
-    <arg name="camera" default="astrapro" />
+    <arg name="camera" default="camera2" />
 
     <!-- Load Camera Calibrations -->
     <group ns="$(arg camera)/calibration_rgb">
@@ -18,9 +18,11 @@
     <include file="$(find astra_launch)/launch/astrapro.launch">
         <arg name="camera" value="$(arg camera)" />
     </include>
-    <include file="$(find usb_cam)/launch/astrapro_rgb.launch">
+    <include file="$(find usb_cam)/launch/astrapro_rgb.launch" >
         <arg name="camera" value="$(arg camera)" />
     </include>
+
+
     <node pkg="cameras" name="marker_testing" type="marker_testing" respawn="true" output="screen">
         <remap from="/camera/rgb/image_raw" to="/$(arg camera)/rgb/image_raw" />
         <param name="camera" value="$(arg camera)" />

@@ -63,14 +63,13 @@ private:
 
     tf::Vector3 pose_avg;
     tf::Quaternion rot_avg;
-
-    double sumX,maxX,minX ;
-    double sumY,maxY,minY ;
-    double sumZ,maxZ,minZ ;
-    double sum_X,max_qX,min_qX ;
-    double sum_Y,max_qY,min_qY ;
-    double sum_Z,max_qZ,min_qZ ;
-    double sum_W,max_qW,min_qW ;
+    double sumX ;
+    double sumY ;
+    double sumZ ;
+    double sum_X ;
+    double sum_Y ;
+    double sum_Z ;
+    double sum_W ;
 
 
 public:
@@ -107,20 +106,20 @@ public:
         // 'cameras' package. I'm not sure which one to use yet.
         // Check for calibration parameters in yaml file
         std::string key;
-        if (nh.searchParam("/camera1/calibration_rgb/camera_matrix", key)) {
+        if (nh.searchParam("/" + camera_name + "/calibration_rgb/camera_matrix", key)) {
             // Grab all calibration values for intrinsic and distortion matrices
             int rows_k;
-            nh.getParam("/camera1/calibration_rgb/camera_matrix/rows", rows_k);
+            nh.getParam("/" + camera_name + "/calibration_rgb/camera_matrix/rows", rows_k);
             int cols_k;
-            nh.getParam("/camera1/calibration_rgb/camera_matrix/cols", cols_k);
+            nh.getParam("/" + camera_name + "/calibration_rgb/camera_matrix/cols", cols_k);
             std::vector<double> K_vec(rows_k*cols_k);
-            nh.getParam("/camera1/calibration_rgb/camera_matrix/data", K_vec);
+            nh.getParam("/" + camera_name + "/calibration_rgb/camera_matrix/data", K_vec);
             int rows_d;
-            nh.getParam("/camera1/calibration_rgb/distortion_coefficients/rows", rows_d);
+            nh.getParam("/" + camera_name + "/calibration_rgb/distortion_coefficients/rows", rows_d);
             int cols_d;
-            nh.getParam("/camera1/calibration_rgb/distortion_coefficients/cols", cols_d);
+            nh.getParam("/" + camera_name + "/calibration_rgb/distortion_coefficients/cols", cols_d);
             std::vector<double> dist_vec(rows_d*cols_d);
-            nh.getParam("/camera1/calibration_rgb/distortion_coefficients/data", dist_vec);
+            nh.getParam("/" + camera_name + "/calibration_rgb/distortion_coefficients/data", dist_vec);
 
             // Convert vectors to OpenCV matrices
             double* K_array = K_vec.data(); // vectors must first be converted to arrays for use in cv::Mat()'s constructor'
@@ -129,7 +128,7 @@ public:
             distCoeffs = cv::Mat(5, 1, CV_64F, dist_array).clone();
         }
         else {
-            ROS_INFO("Calibration not found for 'camera1'\nUsing default calibration values.");
+            ROS_INFO("Calibration not found for '%s'\nUsing default calibration values.", camera_name.c_str());
             // Default calibration parameters for the Astra camera
             double K_[3][3] =
             { {570.3405151367188, 0.0, 319.5},
@@ -142,7 +141,6 @@ public:
 
         int counter = 0;
         bool continue_counting = true;
-
 
         /*8fstream myfile ("marker_list.yaml");
         std::fstream inf( "marker_list.yaml", std::ios::in );
@@ -191,7 +189,7 @@ public:
     void image_callback(const sensor_msgs::ImageConstPtr &msg)
     {
 
-
+        int num_mar ;
         //===== Convert image message to be usable by OpenCV =====//
         cv_bridge::CvImagePtr cv_ptr;
         try {
@@ -225,9 +223,6 @@ public:
 
         //----- Search through detected markers and determine pose -----//
         if (markerIds.size() > 0) {
-
-            std::cout << "Number 1" << std::endl;
-
             // Get position and rotation of marker w.r.t. camera
 
             std::vector<cv::Vec3d> rvecs, tvecs;
@@ -248,7 +243,7 @@ public:
                         std::vector< std::vector<cv::Point2f> > markerCorners_i;
                         markerCorners_i.push_back(markerCorners[i]);
                         markerLength = marker_list[j].size;
-                        //
+                        num_mar = num_mar +1;
 
                         cv::aruco::estimatePoseSingleMarkers(
                             markerCorners_i,  // vector of already detected marker corners
@@ -262,8 +257,6 @@ public:
                         // array of output translation vectors
                         rvecs1[j] = rvecs[0];
                         tvecs1[j] = tvecs[0];
-
-                        std::cout << "Number 2" << std::endl;
 
                         // Create vectors for pose data of size of markers_seen
                         // int num_markers = relevant_index.size();
@@ -292,8 +285,6 @@ public:
                             euler[j].y = atan2(-rotation3x3.at<double>(2,0), sy);
                             euler[j].z = 0;
                         }
-
-                        std::cout << "Number 3" << std::endl;
 
                                             // Convert rotation matrix to Quaternion
                         double theta = (double)(sqrt(rvecs1[j][0]*rvecs1[j][0] +
@@ -333,8 +324,6 @@ public:
                         // std::cout << "z size: " << quat_window[3].size() << "\n";
                         // std::cout << "--------------------------------" << std::endl;
 
-                        //std::cout << "Number 4" << std::endl;
-
                                         // Calculate the average of the window
                         geometry_msgs::Quaternion quat_avg;
                         quat_avg.w = std::accumulate(quat_window[0].begin(), quat_window[0].end(), 0.0) / quat_window[0].size();
@@ -356,77 +345,6 @@ public:
                     }
                 }
             }
-
-            //----- Calculate the Average pose from all markers -----//
-            geometry_msgs::PoseWithCovarianceStamped pose_max;
-            geometry_msgs::PoseWithCovarianceStamped pose_min;
-            // Using this to define the max and min distance to the camera
-            double max_length = 0;
-
-            int ID_max;
-            int ID_min;
-            int num_mar =0;
-
-            std::cout<<"this is marker list size : "<< marker_list.size()<<" this is detect size : "<<markerIds.size()<<std::endl;
-
-            std::cout << "Number 4" << std::endl;
-
-
-            for (int i = 0; i < marker_list.size(); i++) {
-                if(marker_list[i].seen == true){
-
-                    num_mar = num_mar +1;
-
-                    if(max_length < double(sqrt(poses[i].pose.pose.position.x * poses[i].pose.pose.position.x
-                                   + poses[i].pose.pose.position.z * poses[i].pose.pose.position.z
-                                   +poses[i].pose.pose.position.y * poses[i].pose.pose.position.y))){
-
-                        max_length = double(sqrt(poses[i].pose.pose.position.x * poses[i].pose.pose.position.x
-                                   + poses[i].pose.pose.position.z * poses[i].pose.pose.position.z
-                                   +poses[i].pose.pose.position.y * poses[i].pose.pose.position.y));
-
-                        pose_max = poses[i];
-                        ID_max = i;
-                    }
-                }
-            }
-
-            std::cout << "num_mar : "<<num_mar<<" MaxLength: " << max_length<<std::endl;
-            std::cout<<"total markers: "<< num_mar <<"  ID_max : "<< marker_list[ID_max].aruco_id<<std::endl;
-
-                pose_min = pose_max;
-                double min_length = max_length;/*double(sqrt(pose_min.pose.pose.position.x * pose_min.pose.pose.position.x
-                              + pose_min.pose.pose.position.z * pose_min.pose.pose.position.z
-                              +pose_min.pose.pose.position.y * pose_min.pose.pose.position.y));*/
-
-
-            for (int j = 0; j < marker_list.size(); j++) {
-
-                if(marker_list[j].seen == true){
-
-                    if(min_length >= double(sqrt(poses[j].pose.pose.position.x * poses[j].pose.pose.position.x
-                                  + poses[j].pose.pose.position.z * poses[j].pose.pose.position.z
-                                  +poses[j].pose.pose.position.y * poses[j].pose.pose.position.y))){
-
-                        min_length = double(sqrt(poses[j].pose.pose.position.x * poses[j].pose.pose.position.x
-                                   + poses[j].pose.pose.position.z * poses[j].pose.pose.position.z
-                                   + poses[j].pose.pose.position.y * poses[j].pose.pose.position.y));
-
-                        pose_min = poses[j];
-                        ID_min = j;
-
-                        std::cout << "Number 5" << std::endl;
-
-                    }
-                }
-            }
-
-            std::cout<< "ID_min : "<<marker_list[ID_min].aruco_id<<std::endl;
-            std::cout<<"minLength: "<< min_length<<std::endl;
-
-
-
-            //std::cout << "Number 5" << std::endl;
 
             //----- Convert pose of marker to pose of base_link in /odom frame
             // odom_T_base_link = odom_T_marker * (base_link_T_camera * camera_T_marker)^(-1)
@@ -454,11 +372,6 @@ public:
                 ros::Duration(1.0).sleep();
             }
 
-            //std::cout << "Number 6" << std::endl;
-
-            tf::Vector3 pos;
-            tf::Quaternion rot;
-
             for (int i =0; i < marker_list.size(); ++i) {
                 if(marker_list[i].seen == true){
                     camera_rgb_optical_T_marker1.setOrigin(tf::Vector3(poses[i].pose.pose.position.x,
@@ -472,66 +385,24 @@ public:
 
                     // Calculate final transform
                     odom_T_base_link = ((world_T_odom.inverse() * world_T_marker1) * (base_link_T_camera_link * camera_link_T_camera_rgb_optical * camera_rgb_optical_T_marker1).inverse());
-                    rot = odom_T_base_link.getRotation();
-                    pos = odom_T_base_link.getOrigin();
-
+                    tf::Quaternion rot = odom_T_base_link.getRotation();
+                    tf::Vector3 pos = odom_T_base_link.getOrigin();
                     //----- Calculate the Average pose from all markers -----/
-                    // Position
-                    //if(maxX<pos[i].getX()||maxY<pos[i].getY()||maxZ<pos[i].getZ()){
-
-                    if(ID_max == i){
-
-                        maxX = pos.getX()*0.2;
-                        maxY = pos.getY()*0.2;
-                        maxZ = pos.getZ()*0.2;
-                        max_qW= rot.w()*0.2;
-                          // Orientation x
-                        max_qX= rot.x()*0.2;
-                         // Orientation y
-                        max_qY+= rot.y()*0.2;
-                         // Orientation z
-                        max_qZ= rot.z()*0.2;
-                        std::cout<<"THis is the max distance: "<<"X : "<<maxX <<" Y: "<< maxY <<" Z :"<< maxZ <<std::endl;
-                    }
-
-                    if(ID_min == i){
-                        minX = pos.getX()*0.8;
-                        minY = pos.getY()*0.8;
-                        minZ = pos.getZ()*0.8;
-                        min_qX = rot.x()*0.8;
-                        min_qY = rot.y()*0.8;
-                        min_qZ = rot.z()*0.8;
-                        min_qW = rot.w()*0.8;
-                     std::cout<<"This is the min distance: "<<" X : "<<minX <<" Y: "<< minY <<" Z: "<< minZ <<std::endl;
-                    }else{
-                        sumX += pos.getX()*0.5;
-                        // Position y
-                        sumY += pos.getY()*0.5;
-                        sumZ += pos.getZ()*0.5;
-                        // Orientation w
-                        sum_W += rot.w()*0.5;
-                        // Orientation x
-                        sum_X += rot.x()*0.5;
-                        // Orientation y
-                        sum_Y += rot.y()*0.5;
-                        // Orientation z
-                        sum_Z += rot.z()*0.5;
-                        std::cout << "Number 7 and sumX: " << sumX <<std::endl;
-                    }
-
+                    // Position x
+                    sumX += pos.getX();
+                    // Position y
+                    sumY += pos.getY();
+                    sumZ += pos.getZ();
+                    // Orientation w
+                    sum_W += rot.w();
+                    // Orientation x
+                    sum_X += rot.x();
+                    // Orientation y
+                    sum_Y += rot.y();
+                    // Orientation z
+                    sum_Z += rot.z();
                 }
             }
-
-            sumX = sumX +maxX+minX;
-            sumY = sumY +maxY+minY;
-            sumZ = sumZ +maxZ+minZ;
-            sum_X = sum_X+max_qX+min_qX;
-            sum_Y = sum_Y+max_qY+min_qY;
-            sum_Z = sum_Z+max_qZ+min_qZ;
-            sum_W = sum_W+max_qW+min_qW;
-
-            //std::cout << "Number 8" << std::endl;
-
 
             /*sumX = sumX/num_mar;
             pose_avg.getX() = sumX;
@@ -541,20 +412,15 @@ public:
             rot_avg.x() = sum_X/num_mar;
             rot_avg.y() = sum_Y/num_mar;
             rot_avg.z() = sum_Z/num_mar;*/
-            std::cout << "num_mar Two time : " << num_mar<<std::endl;
             geometry_msgs::PoseWithCovarianceStamped pose_base_link;
             pose_base_link.header.frame_id = camera_name + "/base_link";
-            pose_base_link.pose.pose.position.x = sumX/((num_mar-2)*0.5+1);//pose_avg.x;
-            pose_base_link.pose.pose.position.y = sumY/((num_mar-2)*0.5+1);// pose_avg.y;
-            pose_base_link.pose.pose.position.z =  sumZ/((num_mar-2)*0.5+1);//pose_avg.z;
-            pose_base_link.pose.pose.orientation.x = sum_X/((num_mar-2)*0.5+1);//rot_avg.x;
-            pose_base_link.pose.pose.orientation.y = sum_Y/((num_mar-2)*0.5+1);//rot_avg.y;
-            pose_base_link.pose.pose.orientation.z = sum_Z/((num_mar-2)*0.5+1);//rot_avg.z;
-            pose_base_link.pose.pose.orientation.w =  sum_W/((num_mar-2)*0.5+1);//rot_avg.w;
-
-            std::cout<< "pose_base_link: "<<pose_base_link.pose.pose.position.x<<" Y : "<<pose_base_link.pose.pose.position.y<<" Z : "<<pose_base_link.pose.pose.position.z<<std::endl;
-
-        //    std::cout << "Number 9" << std::endl;
+            pose_base_link.pose.pose.position.x = sumX/num_mar;//pose_avg.x;
+            pose_base_link.pose.pose.position.y = sumY/num_mar;// pose_avg.y;
+            pose_base_link.pose.pose.position.z =  sumZ/num_mar;//pose_avg.z;
+            pose_base_link.pose.pose.orientation.x = sum_X/num_mar;//rot_avg.x;
+            pose_base_link.pose.pose.orientation.y = sum_Y/num_mar;//rot_avg.y;
+            pose_base_link.pose.pose.orientation.z = sum_Z/num_mar;//rot_avg.z;
+            pose_base_link.pose.pose.orientation.w =  sum_W/num_mar;//rot_avg.w;
 
             //===== Publish pose =====//
             camera_pose_pub.publish(pose_base_link);

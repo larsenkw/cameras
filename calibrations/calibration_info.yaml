@@ -19,3 +19,8 @@ camera1:
     camera_type: "rgbd"
     brand: "Astra"
     calibration_date: "2018-07-09"
+    
+camera2:
+    camera_type: "rgb"
+    brand: "Astra Pro"
+    calibration_date: "2018-10-02"

@@ -1,0 +1,15 @@
+marker1:
+    aruco_id: 3
+    size: 0.200
+marker2:
+    aruco_id: 0
+    size: 0.200
+marker3:
+    aruco_id: 1
+    size: 0.200
+marker4:
+    aruco_id: 2
+    size: 0.200
+marker5:
+    aruco_id: 4
+    size: 0.200

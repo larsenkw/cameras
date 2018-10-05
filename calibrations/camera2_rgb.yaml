@@ -1,0 +1,20 @@
+image_width: 1280
+image_height: 720
+camera_name: astrapro_rgb
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [933.166873, 0.000000, 646.947300, 0.000000, 924.218439, 384.173807, 0.000000, 0.000000, 1.000000]
+distortion_model: plumb_bob
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [0.128548, -0.210762, -0.001416, 0.001220, 0.000000]
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1.000000, 0.000000, 0.000000, 0.000000, 1.000000, 0.000000, 0.000000, 0.000000, 1.000000]
+projection_matrix:
+  rows: 3
+  cols: 4
+  data: [946.092590, 0.000000, 648.524559, 0.000000, 0.000000, 941.418335, 382.791467, 0.000000, 0.000000, 0.000000, 1.000000, 0.000000]
