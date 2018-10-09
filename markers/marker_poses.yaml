@@ -1,0 +1,10 @@
+# Setup 1
+marker1:
+    aruco_id: 3
+    size: 0.200
+    x: 0 m
+    y: 1.578 m
+    z: 1 m
+
+# Setup 2
+# Setup 3
