@@ -1,10 +1,87 @@
-# Setup 1
+# Marker setup based on marker number
+# 6      9       11
+#     2     3
+# 7      1       12
+#     5     4
+# 8      10      13
+
 marker1:
     aruco_id: 3
     size: 0.200
-    x: 0 m
-    y: 1.578 m
-    z: 1 m
+    x: 0 0
+    y: 1.575 1.569
+    z: 0.020
+marker2:
+    aruco_id: 0
+    size: 0.200
+    x: -0.413 -0.413
+    y: 1.959 1.959
+    z: 0.020
+marker3:
+    aruco_id: 1
+    size: 0.200
+    x: 0.365 0.379
+    y: 1.943 1.941
+    z: 0.020
+marker4:
+    aruco_id: 2
+    size: 0.200
+    x: 0.387 0.402
+    y: 1.175 1.162
+    z: 0.020
+marker5:
+    aruco_id: 13
+    size: 0.200
+    x: -0.424 -0.403
+    y: 1.200 1.195
+    z: 0.020
+marker6:
+    aruco_id: 5
+    size: 0.200
+    x: -2.080 -2.083
+    y: 2.456 2.454
+    z: 0.330
+marker7:
+    aruco_id: 6
+    size: 0.200
+    x: -2.080 -2.083
+    y: 1.514 1.513
+    z: 0.330
+marker8:
+    aruco_id: 7
+    size: 0.200
+    x: -2.080 -2.083
+    y: 0.222 0.223
+    z: 0.330
+marker9:
+    aruco_id: 14
+    size: 0.200
+    x: -0.013 -0.018
+    y: 2.381 2.379
+    z: 0.005
+marker10:
+    aruco_id: 9
+    size: 0.200
+    x: -0.016 -0.012
+    y: 0.222 0.222
+    z: 0.005
+marker11:
+    aruco_id: 10
+    size: 0.200
+    x: 2.073 2.083
+    y: 2.388 2.385
+    z: 0.005
+marker12:
+    aruco_id: 11
+    size: 0.200
+    x: 1.553 1.557
+    y: 1.581 1.578
+    z: 0.005
+marker13:
+    aruco_id: 12
+    size: 0.200
+    x: 1.530 1.541
+    y: 0.219 0.218
+    z: 0.005
 
-# Setup 2
-# Setup 3
+
