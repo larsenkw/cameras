@@ -1,3 +1,12 @@
+/*
+ *  This code saves the position and orientation data of Aruco Tags into a
+ *  '.cvs' file. The position is just the x,y,z coordinates of the translation
+ *  in whatever units match your marker length. The rotation is stored from them
+ *  'rvecs' vector which contains the Angle Axis notation for the orientation
+ *  where the magnitude of the vector is the rotation angle and the three
+ *  values constitute the x,y,z coordinates of the axis of rotation.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <ros/ros.h>
@@ -251,7 +260,9 @@ public:
                         if (current_sec < 5.0) {
                             // Store the data to the file
                             //fprintf(datafile, "%0.10f,%0.10f,%0.10f,%0.10f,%0.10f,%0.10f\n", tvecs[i][0], tvecs[i][1], tvecs[i][2], rvecs[i][0], rvecs[i][1], rvecs[i][2]);
-                            *datafiles[j] << std::fixed << std::setprecision(10) << tvecs[0][0] << "," << tvecs[0][1] << "," << tvecs[0][2] << "," << x << "," << y << "," << z << "\n";
+                            *datafiles[j] << std::fixed << std::setprecision(10)
+                                << tvecs[0][0] << "," << tvecs[0][1] << "," << tvecs[0][2] << ","
+                                << x << "," << y << "," << z << "\n";
                         }
                         else {
                             closeAllFiles();
@@ -330,7 +341,7 @@ public:
             ss << pathname << "_id" << marker_list[i_list].aruco_id << ".csv";
             std::string fullpath = ss.str();
             datafiles[i_list]->open(fullpath.c_str());
-            *datafiles[i_list] << "distance x [m],distance y [m],distance z [m],angle x [rad],angle y [rad],angle z [rad]\n";
+            *datafiles[i_list] << "distance x [m],distance y [m],distance z [m],x anlge [rad],y angle [rad],z angle [rad]\n";
         }
         start_time = clock();
     }

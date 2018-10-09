@@ -11,5 +11,5 @@ marker4:
     aruco_id: 2
     size: 0.200
 marker5:
-    aruco_id: 4
+    aruco_id: 13
     size: 0.200

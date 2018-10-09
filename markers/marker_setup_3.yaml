@@ -11,7 +11,7 @@ marker4:
     aruco_id: 2
     size: 0.200
 marker5:
-    aruco_id: 4
+    aruco_id: 13
     size: 0.200
 marker6:
     aruco_id: 5
@@ -23,5 +23,18 @@ marker8:
     aruco_id: 7
     size: 0.200
 marker9:
-    aruco_id: 8
+    aruco_id: 14
     size: 0.200
+marker10:
+    aruco_id: 9
+    size: 0.200
+marker11:
+    aruco_id: 10
+    size: 0.200
+marker12:
+    aruco_id: 11
+    size: 0.200
+marker13:
+    aruco_id: 12
+    size: 0.200
+
