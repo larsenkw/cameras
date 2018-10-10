@@ -1,2 +1,24 @@
-Markers 4 and 8 do not give consistent readings compared to the others.
+*Markers 4 and 8 do not give consistent readings compared to the others.
+*Make sure the markers have big enough white boarders so the code does not pick up the outer cardboard boarder as a square.
+
+File Names ([d]_[h]_[theta]_[phi])
+d = straightline distance from origin
+h = height of lense
+theta = straightline angle from origin (+ ccw, - cw)
+phi = pitch of camera (+ up, - down)
+
+Straight line, level
+d = varies
+h = 1.535
+theta = 0
+phi = 0
+
+*Need to add 0.025m to each straight line distance
+1.025_1.535_0_0
+2.025_1.535_0_0
+3.025_1.535_0_0
+4.025_1.535_0_0
+5.025_1.535_0_0
+6.025_1.535_0_0
+
 

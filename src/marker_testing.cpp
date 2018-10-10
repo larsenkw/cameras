@@ -331,7 +331,7 @@ public:
         std::cout << "Starting data collection . . .\n";
         store_data = true;
         std::string user_name = std::getenv("USER");
-        std::string pathname = "/home/" + user_name + "/forklift_ws/src/cameras/data/";
+        std::string pathname = "/home/" + user_name + "/forklift_ws/src/cameras/data/astrapro/";
         pathname += filename;
         for (int i_list = 0; i_list < marker_list.size(); ++i_list) {
             std::ofstream* datafile;
