@@ -1,9 +1,9 @@
 *Markers 4 and 8 do not give consistent readings compared to the others.
-*Make sure the markers have big enough white boarders so the code does not pick up the outer cardboard boarder as a square.
+*Make sure the markers have big enough white borders so the code does not pick up the outer cardboard border as a square.
 
 File Names ([d]_[h]_[theta]_[phi])
 d = straightline distance from origin
-h = height of lense
+h = height of lens
 theta = straightline angle from origin (+ ccw, - cw)
 phi = pitch of camera (+ up, - down)
 
@@ -20,5 +20,36 @@ phi = 0
 4.025_1.535_0_0
 5.025_1.535_0_0
 6.025_1.535_0_0
+
+45 deg line, level
+d = varies
+h = 1.535
+theta = +/- 45
+phi = 0
+
+*ignore straight line angled up data with height > 0.425
+straight line, angled upwards
+d = varies
+h = 0.425
+theta = 0
+phi = +42
+
+45 deg line, angled upwards
+d = varies
+h = 0.425
+theta = +/- 45
+phi = +42
+
+straight line, angled downwards
+d = varies
+h = ?
+theta = 0
+phi = -45
+
+45 deg line, angled downwards
+d = varies
+h = ?
+theta = +/- 45
+phi = -45
 
 
