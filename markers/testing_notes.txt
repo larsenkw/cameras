@@ -42,13 +42,13 @@ phi = +42
 
 straight line, angled downwards
 d = varies
-h = ?
+h = 2.829
 theta = 0
 phi = -45
 
 45 deg line, angled downwards
 d = varies
-h = ?
+h = 2.829
 theta = +/- 45
 phi = -45
 
