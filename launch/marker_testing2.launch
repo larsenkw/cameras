@@ -5,7 +5,7 @@
 
     <!-- set names of sensors -->
     <arg name="camera1" default="camera1" />
-    <arg name="camera2" default= "camera2" />
+    <arg name="camera2" default="camera2" />
 
 
     <!-- Start generating transforms -->
@@ -26,25 +26,31 @@
     <rosparam file="$(find cameras)/markers/marker_list.yaml" command="load" />
 
     <!-- Camera Node -->
-    <include file="$(find astra_launch)/launch/astrapro.launch">
+    <include file="$(find astra_launch)/launch/astra.launch">
         <arg name="camera" value="$(arg camera1)" />
     </include>
+     
     <include file="$(find usb_cam)/launch/astrapro_rgb.launch">
         <arg name="camera" value="$(arg camera2)" />
     </include>
+   
 
 
-    <node pkg="cameras" name="camera_posev1" type="camera_posev11" respawn="true" output="screen">
+    <node pkg="cameras" name="camera_posev1" type="camera_posev_last" respawn="true" output="screen">
         <!--remap from="/camera/rgb/image_raw" to="/$(arg camera1)/rgb/image_raw" -->
         <param name="camera" value="$(arg camera1)" />
         <param name="display_image" value="true" />
     </node>
 
-    <node pkg="cameras" name="camera_posev2" type="camera_posev11" respawn="true" output="screen">
+    
+    <node pkg="cameras" name="camera_posev2" type="camera_posev_last" respawn="true" output="screen">
+   
         <!--remap from="/camera/rgb/image_raw" to="/$(arg camera2)/rgb/image_raw" -->
+        
         <param name="camera" value="$(arg camera2)" />
         <param name="display_image" value="true" />
     </node>
+    
 
 
 
