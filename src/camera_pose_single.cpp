@@ -62,7 +62,7 @@ public:
         //===== Grab parameters from ROS server =====//
         // Topic for camera image
         nh_.param<std::string>("pose_topic", pose_topic, "pose");
-        nh_.param<double>("marker_length", markerLength, 0.202);
+        nh_.param<double>("marker_length", markerLength, 0.200);
         nh_.param<bool>("debug", debug, false);
         nh_.param<bool>("display_image", display_image, false);
         nh_.param<std::string>("image_name", image_name, "Image");

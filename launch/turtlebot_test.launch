@@ -5,7 +5,7 @@
     <arg name="display_image" default="false" />
 
     <!-- set names of sensors -->
-    <arg name="camera" default="camera1" />
+    <arg name="camera" default="astrapro" />
 
     <!-- Load Camera Calibrations -->
     <group ns="$(arg camera)/calibration_rgb">
@@ -17,7 +17,7 @@
         <arg name="camera" value="$(arg camera)" />
         <arg name="display_image" value="$(arg display_image)" />
     </include>
-    <node pkg="cameras" name="camera_pose_single" type="camera_pose_single" respawn="true" output="screen">
+    <node pkg="cameras" name="camera_pose" type="camera_pose" respawn="true" output="screen">
         <!-- <remap from="/camera/rgb/image_raw" to="/$(arg camera)/rgb/image_raw" /> -->
         <param name="debug" value="$(arg debug)" />
         <param name="display_image" value="$(arg display_image)" />

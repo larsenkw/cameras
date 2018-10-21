@@ -29,8 +29,7 @@ private:
     ros::Publisher camera_pose_pub;
     tf::TransformBroadcaster base_link_broadcaster; // broadcaster to show base_link transform for debugging
     tf::TransformListener listener; // used to obtain necessary static transforms
-
-    // ROS parameters
+   // ROS parameters
     std::string image_topic;    // name of topic publishing camera images
     std::string pose_topic;     // name of topic for publishing the pose from the camera data
     double markerLength;        // the length of one side of the marker
@@ -48,15 +47,39 @@ private:
     int window_size;            // size of the averaging window
 
     // Calibration parameters
+
+
+    struct Marker{
+        int marker_number;
+        int aruco_id;
+        double size;
+        bool seen;
+    };
+
+    std::vector<Marker> marker_list;
+    // Calibration parameters
     cv::Mat K;
     cv::Mat distCoeffs;
+
+    tf::Vector3 pose_avg;
+    tf::Quaternion rot_avg;
+
+    double sumX;
+    double sumY;
+    double sumZ;
+    double sum_X;
+    double sum_Y;
+    double sum_Z;
+    double sum_W;
+
+
 public:
     Server() : nh_("~"), quat_window(4), window_size(10)
     {
         //===== Grab parameters from ROS server =====//
         // Topic for camera image
         nh_.param<std::string>("pose_topic", pose_topic, "pose");
-        nh_.param<double>("marker_length", markerLength, 0.202);
+        nh_.param<double>("marker_length", markerLength, 0.200);
         nh_.param<bool>("debug", debug, false);
         nh_.param<bool>("display_image", display_image, false);
         nh_.param<std::string>("image_name", image_name, "Image");
@@ -65,14 +88,11 @@ public:
         // Append camera name to "_link"
         camera_link = camera_name + "_link";
 
-        // TODO: need to implement reading a list of integers from a ROS param
-        // and add them to the markers_of_interest vector here, default = 3
-        // This information can be found in the world.yaml file if you cycle
-        // through marker# parameters and find out how many there are.
-        markers_of_interest.push_back(3);
+        ROS_INFO("Subscribing to image topic: %s", image_topic.c_str());
+
 
         // FIXME: test topic name
-        std::cout << "image topic name: " << image_topic << std::endl;
+        //std::cout << "image topic name: " << image_topic << std::endl;
 
         //===== Initialize publishers and subscribers =====//
         // Receving image data
@@ -119,10 +139,58 @@ public:
             double dist_[] = { 0, 0, 0, 0, 0 };
             cv::Mat distCoeffs = cv::Mat(5, 1, CV_64F, dist_).clone();
         }
+
+        int counter = 0;
+        bool continue_counting = true;
+
+
+        /*8fstream myfile ("marker_list.yaml");
+        std::fstream inf( "marker_list.yaml", std::ios::in );
+        while( !inf.eof() ) {
+            std::cout << inf.get() << "\n";
+        }
+        /*inf.close();
+        inf.clear();
+        inf.open( "ex.txt", std::ios::in );
+        char c;
+        while( inf >> c ) {
+            std::cout << c << "\n";
+        }
+        while(!eof)*/
+        while(continue_counting) {
+            std::string key;
+            std::stringstream ss;
+            ss<<"/marker" << (counter+1);
+            std::string marker_name = ss.str();
+            if (nh.searchParam(marker_name, key)) {
+                counter++;
+                int aruco_id;
+                nh.getParam(marker_name + "/aruco_id", aruco_id);
+                double size;
+                nh.getParam(marker_name + "/size", size);
+                Marker marker;
+                marker.marker_number = counter;
+                marker.aruco_id = aruco_id;
+                marker.size = size;
+                marker.seen = false;
+                marker_list.push_back(marker);
+            }else {
+                continue_counting = false;
+            }
+        }
+        std::cout << counter << "markers found." << std::endl;
+        //debuging mesage......
+        for(int i =0; i < marker_list.size(); i++) {
+            std::cout << "Found marker " << marker_list[i].marker_number << "\n";
+            std::cout << "\taruco_id: " << marker_list[i].aruco_id << "\n";
+            std::cout << "\tsize: " << marker_list[i].size << "\n";
+        }
     }
 
     void image_callback(const sensor_msgs::ImageConstPtr &msg)
     {
+
+
         //===== Convert image message to be usable by OpenCV =====//
         cv_bridge::CvImagePtr cv_ptr;
         try {
@@ -137,11 +205,6 @@ public:
         //===== Marker detection =====//
         // Select ArUco Tag dictionary
         cv::Ptr<cv::aruco::Dictionary> dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_4X4_50);
-        //cv::Ptr<cv::aruco::Dictionary> dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_4X4_100);
-        //cv::Ptr<cv::aruco::Dictionary> dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_5X5_100);
-        //cv::Ptr<cv::aruco::Dictionary> dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_100);
-        //cv::Ptr<cv::aruco::Dictionary> dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_7X7_100);
-
         // Define variables used in detecting markers
         cv::Ptr<cv::aruco::DetectorParameters> detectorParams = cv::aruco::DetectorParameters::create();
         std::vector<int> markerIds;
@@ -156,164 +219,157 @@ public:
             detectorParams, // algorithm parameters
             rejectedCandidates);
 
+        // Cycle through all detected markers and only process the ones that
+        // match ids found in marker_list
+
         //----- Search through detected markers and determine pose -----//
         if (markerIds.size() > 0) {
             // Get position and rotation of marker w.r.t. camera
             std::vector<cv::Vec3d> rvecs, tvecs;
-            cv::aruco::estimatePoseSingleMarkers(
-                markerCorners,  // vector of already detected marker corners
-                markerLength,   // length of the marker's side
-                K,              // input 33 floating-point intrinsic camera matrix K
-                distCoeffs,     // vector of distortion coefficients of 4, 5, 8, or 12 elements
-                rvecs,          // array of output rotation vectors (this is essentially angle-axis
-                                // where the x,y,z components, elements 1,2,3, characterize the axis
-                                // while the magnitude of the vector gives the angle)
-                tvecs);         // array of output translation vectors
+            std::vector<cv::Vec3d> rvecs1(marker_list.size()), tvecs1(marker_list.size());
 
-            // Determine number of seen markers of interest
-            std::vector<int> relevant_index;
-            for (unsigned int i = 0; i < markerIds.size(); i++) {
-                for (unsigned int j = 0; j < markers_of_interest.size(); j++) {
-                    if (markerIds[i] == markers_of_interest[j]) {
-                        relevant_index.push_back(i);
+            // Create vectors for pose data of size of markers_seen
+            std::vector<geometry_msgs::Vector3> position(marker_list.size());
+            std::vector<geometry_msgs::Vector3> euler(marker_list.size());
+            std::vector<geometry_msgs::Quaternion> quat(marker_list.size());
+            std::vector<geometry_msgs::PoseWithCovarianceStamped> poses(marker_list.size());
+
+            // Reset marker vector to be all "not seen"
+            for (int j = 0; j < marker_list.size(); ++j) {
+                marker_list[j].seen = false;
+            }
+
+            for(unsigned int i =0; i<markerIds.size(); ++i) {
+                for(int j =0; j < marker_list.size(); ++j) {
+                    if (markerIds[i] == marker_list[j].aruco_id) {
+
+                        marker_list[j].seen = true;
+
+                        std::vector< std::vector<cv::Point2f> > markerCorners_i;
+                        markerCorners_i.push_back(markerCorners[i]);
+                        markerLength = marker_list[j].size;
+
+
+                        cv::aruco::estimatePoseSingleMarkers(
+                            markerCorners_i,  // vector of already detected marker corners
+                            markerLength,   // length of the marker's side
+                            K,              // input 33 floating-point intrinsic camera matrix K
+                            distCoeffs,     // vector of distortion coefficients of 4, 5, 8, or 12 elements
+                            rvecs,          // array of output rotation vectors (this is essentially angle-axis
+                                            // where the x,y,z components, elements 1,2,3, characterize the axis
+                                            // while the magnitude of the vector gives the angle)
+                            tvecs);
+                        // array of output translation vectors
+                        rvecs1[j] = rvecs[0];
+                        tvecs1[j] = tvecs[0];
+
+                        // Create vectors for pose data of size of markers_seen
+                        // int num_markers = relevant_index.size();
+
+                            /*    std::vector<geometry_msgs::Vector3> position(marker_list.size());
+                                std::vector<geometry_msgs::Vector3> euler(marker_list.size());
+                                std::vector<geometry_msgs::Quaternion> quat(marker_list.size());
+                                std::vector<geometry_msgs::PoseWithCovarianceStamped> poses(marker_list.size());*/
+
+                        // Convert rotation vector to euler angles and quaternion
+                        //    for (unsigned int i = 0; i < num_mar; i++) {
+                        // convert to rotation matrix using Rodrigues function
+                        cv::Mat rotation3x3;
+                        cv::Rodrigues(rvecs1[j], rotation3x3);
+
+                        // Convert rotation matrix to Euler angles
+                        float sy = sqrt(rotation3x3.at<double>(0,0) * rotation3x3.at<double>(0,0) +  rotation3x3.at<double>(1,0) * rotation3x3.at<double>(1,0));
+                        bool singular = sy < 1e-6;
+                        if (!singular) {
+                            euler[j].x = atan2(rotation3x3.at<double>(2,1) , rotation3x3.at<double>(2,2));
+                            euler[j].y = atan2(-rotation3x3.at<double>(2,0), sy);
+                            euler[j].z = atan2(rotation3x3.at<double>(1,0), rotation3x3.at<double>(0,0));
+                        }
+                        else {
+                            euler[j].x = atan2(-rotation3x3.at<double>(1,2), rotation3x3.at<double>(1,1));
+                            euler[j].y = atan2(-rotation3x3.at<double>(2,0), sy);
+                            euler[j].z = 0;
+                        }
+
+                        // Convert rotation matrix to Quaternion
+                        double theta = (double)(sqrt(rvecs1[j][0]*rvecs1[j][0] +
+                                                     rvecs1[j][1]*rvecs1[j][1] +
+                                                     rvecs1[j][2]*rvecs1[j][2]));
+
+                        cv::Vec3d axis;
+                        axis[0] = rvecs1[j][0]/theta;
+                        axis[1] = rvecs1[j][1]/theta;
+                        axis[2] = rvecs1[j][2]/theta;
+                                    // Calculate quaternion from angle-axis representation
+                        quat[j].w = (0.5)*sqrt((rotation3x3.at<double>(0,0)+rotation3x3.at<double>(1,1)+rotation3x3.at<double>(2,2)) + 1);
+                        quat[j].x = (rotation3x3.at<double>(2,1) - rotation3x3.at<double>(1,2))/(4*quat[j].w);
+                        quat[j].y = (rotation3x3.at<double>(0,2) - rotation3x3.at<double>(2,0))/(4*quat[j].w);
+                        quat[j].z = (rotation3x3.at<double>(1,0) - rotation3x3.at<double>(0,1))/(4*quat[j].w);
+
+                        // TODO: This code will need to be modified when considering
+                        // more than one marker of interest.
+                        // Store quaternion in sliding window vector
+                        quat_window[0].push_back(quat[j].w);
+                        quat_window[1].push_back(quat[j].x);
+                        quat_window[2].push_back(quat[j].y);
+                        quat_window[3].push_back(quat[j].z);
+
+                                        // Keep window at specified size
+                        if (quat_window[0].size() > window_size) {
+                            quat_window[0].erase(quat_window[0].begin());
+                            quat_window[1].erase(quat_window[1].begin());
+                            quat_window[2].erase(quat_window[2].begin());
+                            quat_window[3].erase(quat_window[3].begin());
+                        }
+
+                        // // FIXME: check window size;
+                        // std::cout << "w size: " << quat_window[0].size() << "\n";
+                        // std::cout << "x size: " << quat_window[1].size() << "\n";
+                        // std::cout << "y size: " << quat_window[2].size() << "\n";
+                        // std::cout << "z size: " << quat_window[3].size() << "\n";
+                        // std::cout << "--------------------------------" << std::endl;
+
+                                        // Calculate the average of the window
+                        geometry_msgs::Quaternion quat_avg;
+                        quat_avg.w = std::accumulate(quat_window[0].begin(), quat_window[0].end(), 0.0) / quat_window[0].size();
+                        quat_avg.x = std::accumulate(quat_window[1].begin(), quat_window[1].end(), 0.0) / quat_window[1].size();
+                        quat_avg.y = std::accumulate(quat_window[2].begin(), quat_window[2].end(), 0.0) / quat_window[2].size();
+                        quat_avg.z = std::accumulate(quat_window[3].begin(), quat_window[3].end(), 0.0) / quat_window[3].size();
+
+                        // Generate PoseWithCovarianceStamped message
+                        poses[j].pose.pose.position.x = tvecs1[j][0];
+                        poses[j].pose.pose.position.y = tvecs1[j][1];
+                        poses[j].pose.pose.position.z = tvecs1[j][2];
+                        poses[j].pose.pose.orientation.w = quat_avg.w;
+                        poses[j].pose.pose.orientation.x = quat_avg.x;
+                        poses[j].pose.pose.orientation.y = quat_avg.y;
+                        poses[j].pose.pose.orientation.z = quat_avg.z;
                     }
                 }
             }
 
-            // Create vectors for pose data of size of markers_seen
-            int num_markers = relevant_index.size();
-            std::vector<geometry_msgs::Vector3> position(num_markers);
-            std::vector<geometry_msgs::Vector3> euler(num_markers);
-            std::vector<geometry_msgs::Quaternion> quat(num_markers);
-            std::vector<geometry_msgs::PoseWithCovarianceStamped> poses(num_markers);
+             //----- Calculate the Average pose from all markers -----//
+             geometry_msgs::PoseWithCovarianceStamped pose_max;
+             geometry_msgs::PoseWithCovarianceStamped pose_min;
+             // Using this to define the max and min distance to the camera
+             //std::cout<<"this is marker list size : "<< marker_list.size()<<" this is detect size : "<<markerIds.size()<<std::endl;
 
-            // Convert rotation vector to euler angles and quaternion
-            for (unsigned int i = 0; i < relevant_index.size(); i++) {
-                // convert to rotation matrix using Rodrigues function
-                cv::Mat rotation3x3;
-                cv::Rodrigues(rvecs[relevant_index[i]], rotation3x3);
+             std::vector<double> weight_list(marker_list.size());
+             double weight_sum;
 
-                // Convert rotation matrix to Euler angles
-                float sy = sqrt(rotation3x3.at<double>(0,0) * rotation3x3.at<double>(0,0) +  rotation3x3.at<double>(1,0) * rotation3x3.at<double>(1,0));
-                bool singular = sy < 1e-6;
-                if (!singular)
-                {
-                    euler[i].x = atan2(rotation3x3.at<double>(2,1) , rotation3x3.at<double>(2,2));
-                    euler[i].y = atan2(-rotation3x3.at<double>(2,0), sy);
-                    euler[i].z = atan2(rotation3x3.at<double>(1,0), rotation3x3.at<double>(0,0));
+        for (int j = 0; j < marker_list.size(); j++) {
+
+                if(marker_list[j].seen == true){
+
+
+                    weight_list[j] = 1 / double(sqrt(poses[j].pose.pose.position.x * poses[j].pose.pose.position.x
+                                  + poses[j].pose.pose.position.z * poses[j].pose.pose.position.z
+                                  +poses[j].pose.pose.position.y * poses[j].pose.pose.position.y));
+
+                    weight_sum += weight_list[j];
+                    //std::cout << "Every marker weight : " << weight_list[j] << std::endl;
                 }
-                else
-                {
-                    euler[i].x = atan2(-rotation3x3.at<double>(1,2), rotation3x3.at<double>(1,1));
-                    euler[i].y = atan2(-rotation3x3.at<double>(2,0), sy);
-                    euler[i].z = 0;
-                }
-
-                // Convert rotation matrix to Quaternion
-                double theta = (double)(sqrt(rvecs[relevant_index[i]][0]*rvecs[relevant_index[i]][0] +
-                                             rvecs[relevant_index[i]][1]*rvecs[relevant_index[i]][1] +
-                                             rvecs[relevant_index[i]][2]*rvecs[relevant_index[i]][2]));
-                cv::Vec3d axis;
-                axis[0] = rvecs[relevant_index[i]][0]/theta;
-                axis[1] = rvecs[relevant_index[i]][1]/theta;
-                axis[2] = rvecs[relevant_index[i]][2]/theta;
-                // Calculate quaternion from angle-axis representation
-                quat[i].w = (0.5)*sqrt((rotation3x3.at<double>(0,0)+rotation3x3.at<double>(1,1)+rotation3x3.at<double>(2,2)) + 1);
-                quat[i].x = (rotation3x3.at<double>(2,1) - rotation3x3.at<double>(1,2))/(4*quat[i].w);
-                quat[i].y = (rotation3x3.at<double>(0,2) - rotation3x3.at<double>(2,0))/(4*quat[i].w);
-                quat[i].z = (rotation3x3.at<double>(1,0) - rotation3x3.at<double>(0,1))/(4*quat[i].w);
-
-                // TODO: This code will need to be modified when considering
-                // more than one marker of interest.
-                // Store quaternion in sliding window vector
-                quat_window[0].push_back(quat[i].w);
-                quat_window[1].push_back(quat[i].x);
-                quat_window[2].push_back(quat[i].y);
-                quat_window[3].push_back(quat[i].z);
-
-                // Keep window at specified size
-                if (quat_window[0].size() > window_size) {
-                    quat_window[0].erase(quat_window[0].begin());
-                    quat_window[1].erase(quat_window[1].begin());
-                    quat_window[2].erase(quat_window[2].begin());
-                    quat_window[3].erase(quat_window[3].begin());
-                }
-
-                // // FIXME: check window size;
-                // std::cout << "w size: " << quat_window[0].size() << "\n";
-                // std::cout << "x size: " << quat_window[1].size() << "\n";
-                // std::cout << "y size: " << quat_window[2].size() << "\n";
-                // std::cout << "z size: " << quat_window[3].size() << "\n";
-                // std::cout << "--------------------------------" << std::endl;
-
-                // Calculate the average of the window
-                geometry_msgs::Quaternion quat_avg;
-                quat_avg.w = std::accumulate(quat_window[0].begin(), quat_window[0].end(), 0.0) / quat_window[0].size();
-                quat_avg.x = std::accumulate(quat_window[1].begin(), quat_window[1].end(), 0.0) / quat_window[1].size();
-                quat_avg.y = std::accumulate(quat_window[2].begin(), quat_window[2].end(), 0.0) / quat_window[2].size();
-                quat_avg.z = std::accumulate(quat_window[3].begin(), quat_window[3].end(), 0.0) / quat_window[3].size();
-
-                // Generate PoseWithCovarianceStamped message
-                poses[i].pose.pose.position.x = tvecs[relevant_index[i]][0];
-                poses[i].pose.pose.position.y = tvecs[relevant_index[i]][1];
-                poses[i].pose.pose.position.z = tvecs[relevant_index[i]][2];
-                poses[i].pose.pose.orientation.w = quat[i].w;
-                poses[i].pose.pose.orientation.x = quat[i].x;
-                poses[i].pose.pose.orientation.y = quat[i].y;
-                poses[i].pose.pose.orientation.z = quat[i].z;
-            }
-
-            //----- Calculate the Average pose from all markers -----//
-            geometry_msgs::PoseWithCovarianceStamped pose_averaged;
-            // Position x
-            double sum = 0;
-            for (int i = 0; i < num_markers; i++) {
-                sum += poses[i].pose.pose.position.x;
-            }
-            double avg = sum / num_markers;
-            pose_averaged.pose.pose.position.x = avg;
-            // Position y
-            sum = 0;
-            for (int i = 0; i < num_markers; i++) {
-                sum += poses[i].pose.pose.position.y;
-            }
-            avg = sum / num_markers;
-            pose_averaged.pose.pose.position.y = avg;
-            // Position z
-            sum = 0;
-            for (int i = 0; i < num_markers; i++) {
-                sum += poses[i].pose.pose.position.z;
-            }
-            avg = sum / num_markers;
-            pose_averaged.pose.pose.position.z = avg;
-            // Orientation w
-            sum = 0;
-            for (int i = 0; i < num_markers; i++) {
-                sum += poses[i].pose.pose.orientation.w;
-            }
-            avg = sum / num_markers;
-            pose_averaged.pose.pose.orientation.w = avg;
-            // Orientation x
-            sum = 0;
-            for (int i = 0; i < num_markers; i++) {
-                sum += poses[i].pose.pose.orientation.x;
-            }
-            avg = sum / num_markers;
-            pose_averaged.pose.pose.orientation.x = avg;
-            // Orientation y
-            sum = 0;
-            for (int i = 0; i < num_markers; i++) {
-                sum += poses[i].pose.pose.orientation.y;
-            }
-            avg = sum / num_markers;
-            pose_averaged.pose.pose.orientation.y = avg;
-            // Orientation z
-            sum = 0;
-            for (int i = 0; i < num_markers; i++) {
-                sum += poses[i].pose.pose.orientation.z;
-            }
-            avg = sum / num_markers;
-            pose_averaged.pose.pose.orientation.z = avg;
+        }
 
             //----- Convert pose of marker to pose of base_link in /odom frame
             // odom_T_base_link = odom_T_marker * (base_link_T_camera * camera_T_marker)^(-1)
@@ -322,6 +378,7 @@ public:
             // world_T_marker: static transform based on marker placement in world
             // base_link_T_camera: static transform based on camera position on robot
             // camera_T_marker: dynamic transform found by this code, (pose_averaged)
+
             tf::StampedTransform world_T_odom;
             tf::StampedTransform world_T_marker1;
             tf::StampedTransform base_link_T_camera_link;
@@ -340,29 +397,53 @@ public:
                 ROS_ERROR("%s", ex.what());
                 ros::Duration(1.0).sleep();
             }
-            camera_rgb_optical_T_marker1.setOrigin(tf::Vector3(pose_averaged.pose.pose.position.x,
-                                                               pose_averaged.pose.pose.position.y,
-                                                               pose_averaged.pose.pose.position.z));
-            tf::Quaternion q(pose_averaged.pose.pose.orientation.x,
-                             pose_averaged.pose.pose.orientation.y,
-                             pose_averaged.pose.pose.orientation.z,
-                             pose_averaged.pose.pose.orientation.w);
-            camera_rgb_optical_T_marker1.setRotation(q);
 
-            // Calculate final transform
-            odom_T_base_link = ((world_T_odom.inverse() * world_T_marker1) * (base_link_T_camera_link * camera_link_T_camera_rgb_optical * camera_rgb_optical_T_marker1).inverse());
-            tf::Quaternion rot = odom_T_base_link.getRotation();
-            tf::Vector3 pos = odom_T_base_link.getOrigin();
+            tf::Vector3 pos;
+            tf::Quaternion rot;
+
+            for (int i =0; i < marker_list.size(); ++i) {
+                if(marker_list[i].seen == true){
+                    camera_rgb_optical_T_marker1.setOrigin(tf::Vector3(poses[i].pose.pose.position.x,
+                                                                       poses[i].pose.pose.position.y,
+                                                                       poses[i].pose.pose.position.z));
+                    tf::Quaternion q(poses[i].pose.pose.orientation.x,
+                                     poses[i].pose.pose.orientation.y,
+                                     poses[i].pose.pose.orientation.z,
+                                     poses[i].pose.pose.orientation.w);
+                    camera_rgb_optical_T_marker1.setRotation(q);
+
+                    // Calculate final transform
+                    odom_T_base_link = ((world_T_odom.inverse() * world_T_marker1) * (base_link_T_camera_link * camera_link_T_camera_rgb_optical * camera_rgb_optical_T_marker1).inverse());
+                    rot = odom_T_base_link.getRotation();
+                    pos = odom_T_base_link.getOrigin();
+
+                    //----- Calculate the Average pose from all markers -----/
+                    // Position
+
+                    sumX += pos.getX()*weight_list[i];
+                    sumY += pos.getY()*weight_list[i];
+                    sumZ += pos.getZ()*weight_list[i];
+                    sum_W += rot.w()*weight_list[i];
+                      // Orientation x
+                    sum_Y += rot.x()*weight_list[i];
+                     // Orientation y
+                    sum_Y += rot.y()*weight_list[i];
+                     // Orientation z
+                    sum_Z += rot.z()*weight_list[i];
+                }
+            }
 
             geometry_msgs::PoseWithCovarianceStamped pose_base_link;
             pose_base_link.header.frame_id = camera_name + "/base_link";
-            pose_base_link.pose.pose.position.x = pos.getX();
-            pose_base_link.pose.pose.position.y = pos.getY();
-            pose_base_link.pose.pose.position.z = pos.getZ();
-            pose_base_link.pose.pose.orientation.x = rot.x();
-            pose_base_link.pose.pose.orientation.y = rot.y();
-            pose_base_link.pose.pose.orientation.z = rot.z();
-            pose_base_link.pose.pose.orientation.w = rot.w();
+            pose_base_link.pose.pose.position.x = sumX/weight_sum;//pose_avg.x;
+            pose_base_link.pose.pose.position.y = sumY/weight_sum;// pose_avg.y;
+            pose_base_link.pose.pose.position.z =  sumZ/weight_sum;//pose_avg.z;
+            pose_base_link.pose.pose.orientation.x = sum_X/weight_sum;//rot_avg.x;
+            pose_base_link.pose.pose.orientation.y = sum_Y/weight_sum;//rot_avg.y;
+            pose_base_link.pose.pose.orientation.z = sum_Z/weight_sum;//rot_avg.z;
+            pose_base_link.pose.pose.orientation.w =  sum_W/weight_sum;//rot_avg.w;
+
+            //std::cout<< "pose_base_link: "<<pose_base_link.pose.pose.position.x<<" Y : "<<pose_base_link.pose.pose.position.y<<" Z : "<<pose_base_link.pose.pose.position.z<<std::endl;
 
             //===== Publish pose =====//
             camera_pose_pub.publish(pose_base_link);
@@ -385,23 +466,25 @@ public:
             // Draw all detected markers.
             if (display_image) {
                 cv::aruco::drawDetectedMarkers(image, markerCorners, markerIds);
-                for (int i = 0; i < relevant_index.size(); i++) {
-                    // Get position and orientation vectors of marker
-                    cv::Vec3d r = rvecs[relevant_index[i]];
-                    cv::Vec3d t = tvecs[relevant_index[i]];
-                    // Draw coordinate axes
-                    cv::aruco::drawAxis(image,
-                        K, distCoeffs,  // camera parameters
-                        r, t,           // marker pose
-                        0.5*markerLength); // length of axes to be drawn
-                    // // Draw a symbol in the upper right corner of the marker
-                    // std::vector<cv::Point3d> pointsInterest;
-                    // pointsInterest.push_back(cv::Point3d(markerLength/2, markerLength/2, 0));
-                    // std::vector<cv::Point2d> p;
-                    // // Project the point onto the 2D image and store as 'p'
-                    // cv::projectPoints(pointsInterest, r, t, K, distCoeffs, p);
-                    // cv::drawMarker(image, p[0], cv::Scalar(0, 255, 255), cv::MARKER_STAR, 20, 2);
-                    // cv::circle(image, p[0], 20, cv::Scalar(0, 255, 255), 2);
+                for (int i = 0; i < marker_list.size(); i++) {
+                    if(marker_list[i].seen == true){
+                        // Get position and orientation vectors of marker
+                        cv::Vec3d r = rvecs1[i];
+                        cv::Vec3d t = tvecs1[i];
+                        // Draw coordinate axes
+                        cv::aruco::drawAxis(image,
+                            K, distCoeffs,  // camera parameters
+                            r, t,           // marker pose
+                            0.5*marker_list[i].size); // length of axes to be drawn
+                        // // Draw a symbol in the upper right corner of the marker
+                        // std::vector<cv::Point3d> pointsInterest;
+                        // pointsInterest.push_back(cv::Point3d(markerLength/2, markerLength/2, 0));
+                        // std::vector<cv::Point2d> p;
+                        // // Project the point onto the 2D image and store as 'p'
+                        // cv::projectPoints(pointsInterest, r, t, K, distCoeffs, p);
+                        // cv::drawMarker(image, p[0], cv::Scalar(0, 255, 255), cv::MARKER_STAR, 20, 2);
+                        // cv::circle(image, p[0], 20, cv::Scalar(0, 255, 255), 2);
+                    }
                 }
 
                 // Show the image in a window
@@ -412,6 +495,9 @@ public:
         }
     }
 };
+
+
+
 
 
 int main(int argc, char* argv[]){
