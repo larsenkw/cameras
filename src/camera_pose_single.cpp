@@ -1,3 +1,9 @@
+/*
+ * This code reads in ROS image messages from a camera node and processes them
+ * using the OpenCV Aruco library to determine the pose of the camera based on
+ * the specified pose of the marker in the world. Only meant for a sinlge camera
+ * and a single marker.
+ */
 #include <ros/ros.h>
 #include <std_msgs/String.h>
 #include <geometry_msgs/Vector3.h>

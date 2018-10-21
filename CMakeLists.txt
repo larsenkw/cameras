@@ -112,6 +112,7 @@ include_directories(
 add_executable(picture_markers src/hw4-2.cpp)
 add_executable(marker_testing src/marker_testing.cpp)
 add_executable(save_file_node src/save_file_node.cpp)
+add_executable(camera_pose_single src/camera_pose_single.cpp)
 add_executable(camera_pose src/camera_pose.cpp)
 add_executable(camera_posev_last src/camera_posev_last.cpp)
 
@@ -121,7 +122,7 @@ add_executable(camera_posev_last src/camera_posev_last.cpp)
 # add_dependencies(neuro_gesture_kinect_node neuro_gesture_kinect_generate_messages_cpp)
 add_dependencies(marker_testing marker_testing_generate_messages_cpp)
 add_dependencies(camera_posev_last camera_posev_last_generate_messages_cpp)
-
+add_dependencies(camera_pose_single camera_pose_single_generate_messages_cpp)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(picture_markers
@@ -133,10 +134,12 @@ target_link_libraries(marker_testing
 target_link_libraries(save_file_node
     ${catkin_LIBRARIES}
 )
+target_link_libraries(camera_pose_single
+    ${catkin_LIBRARIES}
+)
 target_link_libraries(camera_pose
     ${catkin_LIBRARIES}
 )
-
 target_link_libraries(camera_posev_last
     ${catkin_LIBRARIES}
 )
