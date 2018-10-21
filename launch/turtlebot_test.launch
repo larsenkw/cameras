@@ -7,6 +7,9 @@
     <!-- set names of sensors -->
     <arg name="camera" default="astrapro" />
 
+    <!-- Load markers to search for -->
+    <rosparam file="$(find cameras)/markers/marker_list.yaml" command="load" />
+
     <!-- Load Camera Calibrations -->
     <group ns="$(arg camera)/calibration_rgb">
         <rosparam file="$(find cameras)/calibrations/$(arg camera)_rgb.yaml" command="load" />
@@ -15,7 +18,6 @@
     <!-- Camera Node -->
     <include file="$(find usb_cam)/launch/astrapro_rgb.launch">
         <arg name="camera" value="$(arg camera)" />
-        <arg name="display_image" value="$(arg display_image)" />
     </include>
     <node pkg="cameras" name="camera_pose" type="camera_pose" respawn="true" output="screen">
         <!-- <remap from="/camera/rgb/image_raw" to="/$(arg camera)/rgb/image_raw" /> -->

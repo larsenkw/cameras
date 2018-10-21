@@ -178,7 +178,7 @@ public:
                 continue_counting = false;
             }
         }
-        std::cout << counter << "markers found." << std::endl;
+        std::cout << counter << " markers found." << std::endl;
         //debuging mesage......
         for(int i =0; i < marker_list.size(); i++) {
             std::cout << "Found marker " << marker_list[i].marker_number << "\n";
@@ -489,7 +489,7 @@ public:
 
                 // Show the image in a window
                 cv::imshow(image_name, image);
-                cvWaitKey(100); // wait for x ms (0 means wait until a keypress)
+                cvWaitKey(10); // wait for x ms (0 means wait until a keypress)
                                 // returns -1 if no key is hit;
             }
         }

@@ -7,6 +7,9 @@
     <!-- set names of sensors -->
     <arg name="camera" default="camera1" />
 
+    <!-- Load markers to search for -->
+    <rosparam file="$(find cameras)/markers/marker_list.yaml" command="load" />
+
     <!-- Load Camera Calibrations -->
     <group ns="$(arg camera)/calibration_rgb">
         <rosparam file="$(find cameras)/calibrations/$(arg camera)_rgb.yaml" command="load" />
