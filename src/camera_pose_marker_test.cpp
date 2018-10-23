@@ -27,6 +27,7 @@ private:
     ros::NodeHandle nh_;        // for publishing topics and gather params in the private namespace
     ros::Subscriber image_sub;
     ros::Publisher camera_pose_pub;
+    ros::Publisher image_with_markers_pub; // publishes image with marker axes
     tf::TransformBroadcaster base_link_broadcaster; // broadcaster to show base_link transform for debugging
     tf::TransformListener listener; // used to obtain necessary static transforms
    // ROS parameters
@@ -79,7 +80,7 @@ public:
         //===== Grab parameters from ROS server =====//
         // Topic for camera image
         nh_.param<std::string>("pose_topic", pose_topic, "pose");
-        nh_.param<double>("marker_length", markerLength, 0.202);
+        nh_.param<double>("marker_length", markerLength, 0.200);
         nh_.param<bool>("debug", debug, false);
         nh_.param<bool>("display_image", display_image, false);
         nh_.param<std::string>("image_name", image_name, "Image");
@@ -92,13 +93,16 @@ public:
 
 
         // FIXME: test topic name
-        std::cout << "image topic name: " << image_topic << std::endl;
+        //std::cout << "image topic name: " << image_topic << std::endl;
 
         //===== Initialize publishers and subscribers =====//
         // Receving image data
         image_sub = nh.subscribe<sensor_msgs::Image>(image_topic.c_str(), 1, &Server::image_callback, this);
         // Publish base_link pose from camera/marker data
         camera_pose_pub = nh_.advertise<geometry_msgs::PoseWithCovarianceStamped>(pose_topic.c_str(), 1);
+        //Publish image with markers and axes drawn
+        std::string image_with_marker_topic = "/" + camera_name + "/rgb/image_with_markers";
+        image_with_markers_pub = nh.advertise<sensor_msgs::Image>(image_with_marker_topic.c_str(), 1);
 
         //===== Load Camera Calibration Data =====//
         // TODO: Update the calibration reading section so that it is able to
@@ -107,20 +111,20 @@ public:
         // 'cameras' package. I'm not sure which one to use yet.
         // Check for calibration parameters in yaml file
         std::string key;
-        if (nh.searchParam("/camera1/calibration_rgb/camera_matrix", key)) {
+        if (nh.searchParam("/" + camera_name + "/calibration_rgb/camera_matrix", key)) {
             // Grab all calibration values for intrinsic and distortion matrices
             int rows_k;
-            nh.getParam("/camera1/calibration_rgb/camera_matrix/rows", rows_k);
+            nh.getParam("/" + camera_name + "/calibration_rgb/camera_matrix/rows", rows_k);
             int cols_k;
-            nh.getParam("/camera1/calibration_rgb/camera_matrix/cols", cols_k);
+            nh.getParam("/" + camera_name + "/calibration_rgb/camera_matrix/cols", cols_k);
             std::vector<double> K_vec(rows_k*cols_k);
-            nh.getParam("/camera1/calibration_rgb/camera_matrix/data", K_vec);
+            nh.getParam("/" + camera_name + "/calibration_rgb/camera_matrix/data", K_vec);
             int rows_d;
-            nh.getParam("/camera1/calibration_rgb/distortion_coefficients/rows", rows_d);
+            nh.getParam("/" + camera_name + "/calibration_rgb/distortion_coefficients/rows", rows_d);
             int cols_d;
-            nh.getParam("/camera1/calibration_rgb/distortion_coefficients/cols", cols_d);
+            nh.getParam("/" + camera_name + "/calibration_rgb/distortion_coefficients/cols", cols_d);
             std::vector<double> dist_vec(rows_d*cols_d);
-            nh.getParam("/camera1/calibration_rgb/distortion_coefficients/data", dist_vec);
+            nh.getParam("/" + camera_name + "/calibration_rgb/distortion_coefficients/data", dist_vec);
 
             // Convert vectors to OpenCV matrices
             double* K_array = K_vec.data(); // vectors must first be converted to arrays for use in cv::Mat()'s constructor'
@@ -129,7 +133,7 @@ public:
             distCoeffs = cv::Mat(5, 1, CV_64F, dist_array).clone();
         }
         else {
-            ROS_INFO("Calibration not found for 'camera1'\nUsing default calibration values.");
+            ROS_INFO("Calibration not found for '%s'\nUsing default calibration values.", camera_name.c_str());
             // Default calibration parameters for the Astra camera
             double K_[3][3] =
             { {570.3405151367188, 0.0, 319.5},
@@ -178,7 +182,7 @@ public:
                 continue_counting = false;
             }
         }
-        std::cout << counter << "markers found." << std::endl;
+        std::cout << counter << " markers found." << std::endl;
         //debuging mesage......
         for(int i =0; i < marker_list.size(); i++) {
             std::cout << "Found marker " << marker_list[i].marker_number << "\n";
@@ -224,16 +228,11 @@ public:
 
         //----- Search through detected markers and determine pose -----//
         if (markerIds.size() > 0) {
-
-            std::cout << "Number 1" << std::endl;
-
             // Get position and rotation of marker w.r.t. camera
-
             std::vector<cv::Vec3d> rvecs, tvecs;
             std::vector<cv::Vec3d> rvecs1(marker_list.size()), tvecs1(marker_list.size());
+
             // Create vectors for pose data of size of markers_seen
-
-
             std::vector<geometry_msgs::Vector3> position(marker_list.size());
             std::vector<geometry_msgs::Vector3> euler(marker_list.size());
             std::vector<geometry_msgs::Quaternion> quat(marker_list.size());
@@ -268,8 +267,6 @@ public:
                         rvecs1[j] = rvecs[0];
                         tvecs1[j] = tvecs[0];
 
-                        std::cout << "Number 2" << std::endl;
-
                         // Create vectors for pose data of size of markers_seen
                         // int num_markers = relevant_index.size();
 
@@ -298,9 +295,7 @@ public:
                             euler[j].z = 0;
                         }
 
-                        std::cout << "Number 3" << std::endl;
-
-                                            // Convert rotation matrix to Quaternion
+                        // Convert rotation matrix to Quaternion
                         double theta = (double)(sqrt(rvecs1[j][0]*rvecs1[j][0] +
                                                      rvecs1[j][1]*rvecs1[j][1] +
                                                      rvecs1[j][2]*rvecs1[j][2]));
@@ -338,8 +333,6 @@ public:
                         // std::cout << "z size: " << quat_window[3].size() << "\n";
                         // std::cout << "--------------------------------" << std::endl;
 
-                        //std::cout << "Number 4" << std::endl;
-
                                         // Calculate the average of the window
                         geometry_msgs::Quaternion quat_avg;
                         quat_avg.w = std::accumulate(quat_window[0].begin(), quat_window[0].end(), 0.0) / quat_window[0].size();
@@ -363,14 +356,7 @@ public:
              geometry_msgs::PoseWithCovarianceStamped pose_max;
              geometry_msgs::PoseWithCovarianceStamped pose_min;
              // Using this to define the max and min distance to the camera
-
-
-
-
-             std::cout<<"this is marker list size : "<< marker_list.size()<<" this is detect size : "<<markerIds.size()<<std::endl;
-
-             std::cout << "Number 4" << std::endl;
-
+             //std::cout<<"this is marker list size : "<< marker_list.size()<<" this is detect size : "<<markerIds.size()<<std::endl;
 
              std::vector<double> weight_list(marker_list.size());
              double weight_sum;
@@ -378,17 +364,16 @@ public:
         for (int j = 0; j < marker_list.size(); j++) {
 
                 if(marker_list[j].seen == true){
+
+
                     weight_list[j] = 1 / double(sqrt(poses[j].pose.pose.position.x * poses[j].pose.pose.position.x
                                   + poses[j].pose.pose.position.z * poses[j].pose.pose.position.z
                                   +poses[j].pose.pose.position.y * poses[j].pose.pose.position.y));
 
                     weight_sum += weight_list[j];
-                    std::cout << "Every marker weight : " << weight_list[j] << std::endl;
+                    //std::cout << "Every marker weight : " << weight_list[j] << std::endl;
                 }
         }
-
-
-            std::cout << "Number 5" << std::endl;
 
             //----- Convert pose of marker to pose of base_link in /odom frame
             // odom_T_base_link = odom_T_marker * (base_link_T_camera * camera_T_marker)^(-1)
@@ -416,8 +401,6 @@ public:
                 ROS_ERROR("%s", ex.what());
                 ros::Duration(1.0).sleep();
             }
-
-            std::cout << "Number 6" << std::endl;
 
             tf::Vector3 pos;
             tf::Quaternion rot;
@@ -454,9 +437,6 @@ public:
                 }
             }
 
-            std::cout << "Number 8" << std::endl;
-
-
             geometry_msgs::PoseWithCovarianceStamped pose_base_link;
             pose_base_link.header.frame_id = camera_name + "/base_link";
             pose_base_link.pose.pose.position.x = sumX/weight_sum;//pose_avg.x;
@@ -468,12 +448,28 @@ public:
             pose_base_link.pose.pose.orientation.z = q_norm[2];//rot_avg.z;
             pose_base_link.pose.pose.orientation.w = q_norm[3];//rot_avg.w;
 
-            std::cout<< "pose_base_link: "<<pose_base_link.pose.pose.position.x<<" Y : "<<pose_base_link.pose.pose.position.y<<" Z : "<<pose_base_link.pose.pose.position.z<<std::endl;
-
-            std::cout << "Number 9" << std::endl;
+            //std::cout<< "pose_base_link: "<<pose_base_link.pose.pose.position.x<<" Y : "<<pose_base_link.pose.pose.position.y<<" Z : "<<pose_base_link.pose.pose.position.z<<std::endl;
 
             //===== Publish pose =====//
             camera_pose_pub.publish(pose_base_link);
+
+            // FIXME: Publish the image with markers and axes drawn
+            cv::Mat image_with_markers = image.clone();
+            cv::aruco::drawDetectedMarkers(image_with_markers, markerCorners, markerIds);
+            for (int i = 0; i < marker_list.size(); i++) {
+                if(marker_list[i].seen == true){
+                    // Get position and orientation vectors of marker
+                    cv::Vec3d r = rvecs1[i];
+                    cv::Vec3d t = tvecs1[i];
+                    // Draw coordinate axes
+                    cv::aruco::drawAxis(image_with_markers,
+                        K, distCoeffs,  // camera parameters
+                        r, t,           // marker pose
+                        0.5*marker_list[i].size); // length of axes to be drawn
+                }
+            }
+            sensor_msgs::ImagePtr msg_out = cv_bridge::CvImage(std_msgs::Header(), "bgr8", image_with_markers).toImageMsg();
+            image_with_markers_pub.publish(msg_out);
 
             //----- DEBUG: broadcast the transform here for /odom -> /camera/base_link
             if (debug) {
@@ -516,7 +512,7 @@ public:
 
                 // Show the image in a window
                 cv::imshow(image_name, image);
-                cvWaitKey(100); // wait for x ms (0 means wait until a keypress)
+                cvWaitKey(10); // wait for x ms (0 means wait until a keypress)
                                 // returns -1 if no key is hit;
             }
         }

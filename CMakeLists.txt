@@ -115,6 +115,7 @@ add_executable(save_file_node src/save_file_node.cpp)
 add_executable(camera_pose_single src/camera_pose_single.cpp)
 add_executable(camera_pose src/camera_pose.cpp)
 add_executable(camera_posev_last src/camera_posev_last.cpp)
+add_executable(camera_pose_marker_test src/camera_pose_marker_test.cpp)
 
 
 ## Add cmake target dependencies of the executable/library
@@ -123,6 +124,7 @@ add_executable(camera_posev_last src/camera_posev_last.cpp)
 add_dependencies(marker_testing marker_testing_generate_messages_cpp)
 add_dependencies(camera_posev_last camera_posev_last_generate_messages_cpp)
 add_dependencies(camera_pose_single camera_pose_single_generate_messages_cpp)
+add_dependencies(camera_pose_marker_test cameras_generate_messages_cpp)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(picture_markers
@@ -141,6 +143,9 @@ target_link_libraries(camera_pose
     ${catkin_LIBRARIES}
 )
 target_link_libraries(camera_posev_last
+    ${catkin_LIBRARIES}
+)
+target_link_libraries(camera_pose_marker_test
     ${catkin_LIBRARIES}
 )
 

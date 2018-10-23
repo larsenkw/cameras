@@ -15,11 +15,16 @@
         <rosparam file="$(find cameras)/calibrations/$(arg camera)_rgb.yaml" command="load" />
     </group>
 
-    <!-- Camera Node -->
+    <!-- RGB Image Node -->
     <include file="$(find usb_cam)/launch/astrapro_rgb.launch">
         <arg name="camera" value="$(arg camera)" />
     </include>
-    <node pkg="cameras" name="camera_pose" type="camera_pose" respawn="true" output="screen">
+    <!-- Depth Image Node -->
+    <include file="$(find astra_launch)/launch/astrapro.launch">
+        <arg name="camera" value="$(arg camera)" />
+    </include>
+    <!-- Camera Pose Node -->
+    <node pkg="cameras" name="camera_pose_marker_test" type="camera_pose_marker_test" respawn="true" output="screen">
         <!-- <remap from="/camera/rgb/image_raw" to="/$(arg camera)/rgb/image_raw" /> -->
         <param name="debug" value="$(arg debug)" />
         <param name="display_image" value="$(arg display_image)" />

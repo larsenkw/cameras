@@ -438,10 +438,11 @@ public:
             pose_base_link.pose.pose.position.x = sumX/weight_sum;//pose_avg.x;
             pose_base_link.pose.pose.position.y = sumY/weight_sum;// pose_avg.y;
             pose_base_link.pose.pose.position.z =  sumZ/weight_sum;//pose_avg.z;
-            pose_base_link.pose.pose.orientation.x = sum_X/weight_sum;//rot_avg.x;
-            pose_base_link.pose.pose.orientation.y = sum_Y/weight_sum;//rot_avg.y;
-            pose_base_link.pose.pose.orientation.z = sum_Z/weight_sum;//rot_avg.z;
-            pose_base_link.pose.pose.orientation.w =  sum_W/weight_sum;//rot_avg.w;
+            tf::Quaternion q_norm = tf::Quaternion(sum_X/weight_sum, sum_Y/weight_sum, sum_Z/weight_sum, sum_W/weight_sum);
+            pose_base_link.pose.pose.orientation.x = q_norm[0];//rot_avg.x;
+            pose_base_link.pose.pose.orientation.y = q_norm[1];//rot_avg.y;
+            pose_base_link.pose.pose.orientation.z = q_norm[2];//rot_avg.z;
+            pose_base_link.pose.pose.orientation.w = q_norm[3];//rot_avg.w;
 
             //std::cout<< "pose_base_link: "<<pose_base_link.pose.pose.position.x<<" Y : "<<pose_base_link.pose.pose.position.y<<" Z : "<<pose_base_link.pose.pose.position.z<<std::endl;
 
