@@ -3,12 +3,10 @@
     <!-- Prints output messages to screen for all nodes -->
     <arg name="debug" default="false" />
     <arg name="display_image" default="false" />
+    <arg name="depth_registration" default="false" />
 
     <!-- set names of sensors -->
     <arg name="camera" default="astrapro" />
-
-    <!-- Load markers to search for -->
-    <rosparam file="$(find cameras)/markers/marker_list.yaml" command="load" />
 
     <!-- Load Camera Calibrations -->
     <group ns="$(arg camera)/calibration_rgb">
@@ -22,6 +20,7 @@
     <!-- Depth Image Node -->
     <include file="$(find astra_launch)/launch/astrapro.launch">
         <arg name="camera" value="$(arg camera)" />
+        <arg name="depth_registration" value="$(arg depth_registration)" />
     </include>
     <!-- Camera Pose Node -->
     <node pkg="cameras" name="camera_pose_marker_test" type="camera_pose_marker_test" respawn="true" output="screen">
