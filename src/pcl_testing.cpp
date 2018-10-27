@@ -25,7 +25,8 @@ int main(int argc, char** argv)
 
     // Subscribe to point cloud data from Astra Pro
     //ros::Subscriber pc_sub = nh.subscribe("/astrapro/depth/points", 1, pcCallback);
-    ros::Subscriber pc_sub = nh.subscribe("/astra/depth_registered/points", 1, pcCallback);
+    //ros::Subscriber pc_sub = nh.subscribe("/astra/depth_registered/points", 1, pcCallback);
+    ros::Subscriber pc_sub = nh.subscribe("/os1_node/points", 1, pcCallback);
 
     ros::spin();
 
