@@ -1,0 +1,9 @@
+<!-- Starts up all nodes for running the robot -->
+<launch>
+    <arg name="camera" default="astrapro" />
+
+    <node pkg="cameras" name="marker_testing" type="marker_testing" respawn="true" output="screen">
+        <remap from="/camera/rgb/image_raw" to="/$(arg camera)/rgb/image_raw" />
+        <param name="camera" value="$(arg camera)" />
+    </node>
+</launch>

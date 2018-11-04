@@ -251,6 +251,11 @@ public:
                         z = 0;
                     }
 
+                    // FIXME: debug euler angle calculation
+                    std::cout << "X: " << x << std::endl;
+                    std::cout << "Y: " << y << std::endl;
+                    std::cout << "Z: " << z << std::endl;
+
                     //========== Save Data to File ==========//
                     if (store_data) {
                         // Get the current time
@@ -341,7 +346,7 @@ public:
             ss << pathname << "_id" << marker_list[i_list].aruco_id << ".csv";
             std::string fullpath = ss.str();
             datafiles[i_list]->open(fullpath.c_str());
-            *datafiles[i_list] << "distance x [m],distance y [m],distance z [m],x anlge [rad],y angle [rad],z angle [rad]\n";
+            *datafiles[i_list] << "distance x [m],distance y [m],distance z [m],x angle [rad],y angle [rad],z angle [rad]\n";
         }
         start_time = clock();
     }
