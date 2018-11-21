@@ -118,7 +118,7 @@ add_executable(camera_posev_last src/camera_posev_last.cpp)
 add_executable(camera_pose_marker_test src/camera_pose_marker_test.cpp)
 add_executable(pcl_testing src/pcl_testing.cpp)
 add_executable(pcd_publisher src/pcd_publisher.cpp)
-add_executable(cylinder_segmentation src/cylinder_segmentation.cpp)
+add_executable(cylinder_segmentation src/cylinder_segmentation2.cpp)
 
 
 ## Add cmake target dependencies of the executable/library
