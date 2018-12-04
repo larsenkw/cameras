@@ -21,10 +21,12 @@
 
 // TODO: Ways to improve this code
 /*
-1) Instead of using the opencv image matrix to store where the points are, you could save them in a vector storing the (x,y) index of each point, then just iterate through the vector instead of the entire image. In other words, you a sparse matrix instead of dense.
+1) Instead of using the opencv image matrix to store where the points are, you could save them in a vector storing the (x,y) index of each point, then just iterate through the vector instead of the entire image. In other words, use a sparse matrix instead of dense.
 2) The detection robustness needs to be improved. Play with filtering the point cloud as well as trying an edge detector on the 2D occupancy image to eliminate detecting circles simply where there are a plethora of points.
 3) Update the code to handle checking out multiple circle locations (by checking the top X maximum points) and then do a sanity-check of some kind to confirm whether it is really the kind of circle we are looking for.
 4) Add in the ability to check for circle of different radii. That way you could add a tolerance on the radius or you could search for multiple circle types.
+5) Create a method for allowing the user to filter out points except those around the expected area of the roll. You will need to convert camera points into world frame and then do your filtering based on a bounding box
+6) You could also try playing with different filtering densities using either a uniform_sampling filter or voxel_grid filter to downsample before generating the 2D image
  */
 
 #include <iostream>
@@ -34,6 +36,7 @@
 #include <ros/ros.h>
 #include <geometry_msgs/Pose.h>
 #include <sensor_msgs/PointCloud2.h>
+#include <visualization_msgs/Marker.h>
 #include <tf/transform_listener.h>
 #include <opencv2/opencv.hpp>
 #include <pcl/common/common.h>
@@ -57,7 +60,10 @@ private:
     ros::NodeHandle nh_;
     ros::Subscriber pc_sub; // subscribes to pointcloud data
     ros::Publisher cyl_pub; // publish the position of the cylinder as a pose
+    ros::Publisher marker_pub; // publish cylinder marker
     tf::TransformListener tf_listener;
+    std::string camera_name;
+    std::string default_frame;
     std::string target_frame;
 
     //===== Tuning Paramters
@@ -120,10 +126,19 @@ public:
     translation(0, 0, 0),
     rotation(1, 0, 0, 0) // w, x, y, z
     {
+        // Load Parameters
+        nh_.param<std::string>("camera", camera_name, "camera");
+        default_frame = camera_name + "_link";
+        nh_.param<std::string>("target_frame", target_frame, default_frame);
+
         // ROS Objects
-        pc_sub = nh_.subscribe("/camera/depth/points", 1, &CylinderDetector::pcCallback, this);
-        target_frame = "/camera_link";
+        std::string point_topic = "/" + camera_name + "/depth/points";
+        target_frame.insert(0, "/"); // camera is assumed to be level with the ground, this frame must one where Z is up
+        ROS_INFO("Reading depth points from: %s", point_topic.c_str());
+        ROS_INFO("Transforming cloud to '%s' frame", target_frame.c_str());
+        pc_sub = nh_.subscribe(point_topic.c_str(), 1, &CylinderDetector::pcCallback, this);
         cyl_pub = nh_.advertise<geometry_msgs::PointStamped>("point", 1);
+        marker_pub = nh_.advertise<visualization_msgs::Marker>("marker", 1);
 
         //===== Tuning Paramters =====//
         max_distance_x = 6; // m
@@ -132,8 +147,8 @@ public:
         min_distance_y = -5; // m
         max_distance_z = 10; // m
         min_distance_z = -10; // m
-        max_fixed_x = 5.0; // m
-        min_fixed_x = 0.0; // m
+        max_fixed_x = 6.0; // m
+        min_fixed_x = 0.5; // m
         max_fixed_y = 2.5; // m
         min_fixed_y = -2.5; // m
         resolution = 256.0; // pixels/m, 256 approx. = 1280 pixels / 5 m
@@ -206,7 +221,7 @@ public:
         pcl::PassThrough<PointT> pass; // passthrough filter
         pass.setInputCloud(scene_cloud_unfiltered);
         pass.setFilterFieldName("z");
-        pass.setFilterLimits(-0.100, 0.100);
+        pass.setFilterLimits(-0.100, 0.500);
         pass.filter(*scene_cloud);
         //=================================================//
 
@@ -245,6 +260,20 @@ public:
             if (x_index >= 0 && x_index <= (x_pixels - 1) && y_index >= 0 && y_index <= (y_pixels - 1)) {
                 top_image.at<uint8_t>(cv::Point(x_index, y_index)) = 255; // make sure the type matches with the matrix value type, CV_*U = uint8_t
             }
+        }
+
+        //----- Find contours for blob shapes
+        // First 'close' the image to fill in thin lines
+        cv::Mat structure_element;
+        structure_element = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(15,15));
+        cv::Mat top_image_close;
+        cv::morphologyEx(top_image, top_image_close, cv::MORPH_CLOSE, structure_element);
+        std::vector< std::vector<cv::Point> > contours; // stores the vectors of points making up the contours
+        std::vector<cv::Vec4i> hierarchy; // vector storing vectors which represent the connection between contours ([i][0] = next, [i][1] = previous, [i][2] = first child, [i][3] = parent)
+        findContours(top_image_close, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE);
+        cv::Mat top_image_contours = cv::Mat::zeros(top_image_close.size(), CV_8U);
+        for (int i = 0; i < contours.size(); ++i) {
+            drawContours(top_image_contours, contours, i, cv::Scalar(255, 255, 255), 2, 8, hierarchy, 0);
         }
 
         //----- Create an image fixed in place based on 'max/min_fixed_x' and 'max/min_fixed_y', for stable visualization
@@ -402,6 +431,7 @@ public:
         // std::cout << "======================\n";
         // std::cout << std::endl;
 
+        // Copy points the relative-size image translated into a fixed frame size image
         if (use_bounds) {
             // Assign ranges for copying image points
             cv::Range x_fixed_indices(x_lb_fixed, x_ub_fixed);
@@ -424,13 +454,16 @@ public:
         cv::Mat accumulator = cv::Mat::zeros(accum_y_pixels, accum_x_pixels, CV_16U);
 
         //----- Hough Transform Iteration
+        // Set the image to be used for accumulation
+        cv::Mat top_image_accum = top_image_contours.clone();
+
         // Iterate through each point in the image, for each point that is not 0 create a circle andn increment the pixel values in the accumulator along that circle.
-        int num_rows = top_image.rows;
-        int num_cols = top_image.cols;
+        int num_rows = top_image_accum.rows;
+        int num_cols = top_image_accum.cols;
 
         for (int i = 0; i < num_rows; ++i) {
             for (int j = 0; j < num_cols; ++j) {
-                if (!(top_image.at<uint8_t>(i,j) == 0)) {
+                if (!(top_image_accum.at<uint8_t>(i,j) == 0)) {
                     // Increment around a circle by rotation_resolution
                     double theta = 0.0; /// current angle around the circle
                     while (theta < 2*M_PI) {
@@ -476,13 +509,21 @@ public:
         // viewer.spinOnce();
 
         // DEBUG: Show image
-        // cv::namedWindow("Top Image", cv::WINDOW_NORMAL);
-        // cv::resizeWindow("Top Image", 900, 900);
-        // cv::imshow("Top Image", top_image_fixed_rgb);
+        cv::namedWindow("Top Image Fixed", cv::WINDOW_NORMAL);
+        cv::resizeWindow("Top Image Fixed", 700, 700);
+        cv::imshow("Top Image Fixed", top_image_fixed_rgb);
 
-        // cv::namedWindow("Accumulator", cv::WINDOW_NORMAL);
-        // cv::resizeWindow("Accumulator", 700, 700);
-        // cv::imshow("Accumulator", accumulator);
+        cv::namedWindow("Top Image Contours", cv::WINDOW_NORMAL);
+        cv::resizeWindow("Top Image Contours", 700, 700);
+        cv::imshow("Top Image Contours", top_image_contours);
+
+        // cv::namedWindow("Top Image", cv::WINDOW_NORMAL);
+        // cv::resizeWindow("Top Image", 700, 700);
+        // cv::imshow("Top Image", top_image);
+
+        cv::namedWindow("Accumulator", cv::WINDOW_NORMAL);
+        cv::resizeWindow("Accumulator", 700, 700);
+        cv::imshow("Accumulator", accumulator);
 
         cvWaitKey(10);
         //==================================//
@@ -498,6 +539,25 @@ public:
         cylinder_point.point.y = camera_frame_y;
         cylinder_point.point.z = 0;
         cyl_pub.publish(cylinder_point);
+
+        // DEBUG: Show cylinder marker
+        visualization_msgs::Marker cyl_marker;
+        cyl_marker.header = cylinder_point.header;
+        cyl_marker.id = 1;
+        cyl_marker.type = visualization_msgs::Marker::CYLINDER;
+        cyl_marker.pose.position = cylinder_point.point;
+        cyl_marker.pose.orientation.x = 0;
+        cyl_marker.pose.orientation.y = 0;
+        cyl_marker.pose.orientation.z = 0;
+        cyl_marker.pose.orientation.w = 1.0;
+        cyl_marker.scale.x = 0.20;
+        cyl_marker.scale.y = 0.20;
+        cyl_marker.scale.z = 1.0;
+        cyl_marker.color.a = 1.0;
+        cyl_marker.color.r = 0.0;
+        cyl_marker.color.g = 1.0;
+        cyl_marker.color.b = 0.0;
+        marker_pub.publish(cyl_marker);
         //==========================================================//
     }
 
