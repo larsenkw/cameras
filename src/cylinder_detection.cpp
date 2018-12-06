@@ -696,7 +696,7 @@ public:
 
     void findPointsDeletion(std::vector<cv::Point> &points, cv::Mat &accumulator)
     {
-        //----- Determines the top 'num_potentials' number of points by storing the maximum value in accumulator, setting the points within a circle of the desired radius in the image to 0, the refinding the maximum, deleting around that points, (repeat num_potentials times)
+        //----- Determines the top 'num_potentials' number of points by storing the maximum value in accumulator, setting the points within a circle of the desired radius in the image to 0, then refinding the maximum, deleting around that points, (repeat num_potentials times)
         // The returned 'points' vector is in image frame
 
         cv::Mat accum_iter = accumulator.clone();
