@@ -1,0 +1,35 @@
+<!-- Starts up all nodes for running a single camera -->
+<launch>
+    <!-- Prints output messages to screen for all nodes -->
+    <arg name="debug" default="false" />
+    <arg name="display_image" default="false" />
+    <arg name="depth_registration" default="false" />
+
+    <!-- set names of sensors -->
+    <arg name="camera" default="astrapro" />
+
+    <!-- Load Camera Calibrations -->
+    <group ns="$(arg camera)/calibration_rgb">
+        <rosparam file="$(find cameras)/calibrations/$(arg camera)_rgb.yaml" command="load" />
+    </group>
+
+    <!-- RGB Image Node -->
+    <!-- This node must be run separately in order to move the continous stream of
+         deprecation errors to another terminal. This way you can actually see the
+         debugging messages -->
+    <!-- <include file="$(find usb_cam)/launch/astrapro_rgb.launch">
+        <arg name="camera" value="$(arg camera)" />
+    </include> -->
+    <!-- Depth Image Node -->
+    <include file="$(find astra_launch)/launch/astrapro.launch">
+        <arg name="camera" value="$(arg camera)" />
+        <arg name="depth_registration" value="$(arg depth_registration)" />
+    </include>
+    <!-- Camera Pose Node -->
+    <node pkg="cameras" name="camera_pose_marker_test" type="camera_pose_marker_test" respawn="true" output="screen">
+        <!-- <remap from="/camera/rgb/image_raw" to="/$(arg camera)/rgb/image_raw" /> -->
+        <param name="debug" value="$(arg debug)" />
+        <param name="display_image" value="$(arg display_image)" />
+        <param name="camera" value="$(arg camera)" />
+    </node>
+</launch>

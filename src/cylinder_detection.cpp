@@ -280,8 +280,11 @@ public:
         accumulatorToImage(max_loc.x, max_loc.y, circle_index_x, circle_index_y);
 
         // Generate mask for removing max
-        potentials.clear();
-        findPointsDeletion(potentials, accumulator);
+        // potentials.clear();
+        // findPointsDeletion(potentials, accumulator);
+
+        // Check if the potential points could be valid cylinder points
+        // checkPotentials(potentials, top_image);
 
         // // DEBUG: Hightlight the max point with a circle
         // cv::Mat top_image_rgb;
@@ -345,9 +348,9 @@ public:
         cyl_marker.scale.y = 0.20;
         cyl_marker.scale.z = 1.0;
         cyl_marker.color.a = 1.0;
-        cyl_marker.color.r = 0.0;
+        cyl_marker.color.r = 1.0;
         cyl_marker.color.g = 1.0;
-        cyl_marker.color.b = 0.0;
+        cyl_marker.color.b = 1.0;
         marker_pub.publish(cyl_marker);
         //==========================================================//
     }
@@ -731,26 +734,114 @@ public:
             bitwise_not(circle_mask, circle_mask);
 
             // Merge mask of 1's and circle mask
-            cv::Rect mask_area(max_loc.x - (radius_pixels - 1), max_loc.y - (radius_pixels - 1), 2*radius_pixels - 1, 2*radius_pixels - 1);
-            cv::Mat subrange = accum_mask(mask_area);
-            circle_mask.copyTo(subrange);
+            int offset_x = 0;
+            int offset_y = 0;
+            int upper_x_accum = max_loc.x - (radius_pixels - 1);
+            int upper_y_accum = max_loc.y - (radius_pixels - 1);
+            int length_x = 2*radius_pixels - 1;
+            int length_y = 2*radius_pixels - 1;
+            int upper_x_mask = 0;
+            int upper_y_mask = 0;
+
+            // Make sure the edges of the masks are within the image bounds
+            if (upper_x_accum < 0) {
+                offset_x = upper_x_accum;
+                upper_x_accum = 0;
+                upper_x_mask = -offset_x;
+            }
+            else if ((upper_x_accum + length_x) > (accum_mask.cols - 1)) {
+                offset_x = (accum_mask.cols - 1) - (upper_x_accum + length_x);
+            }
+            if (upper_y_accum < 0) {
+                offset_y = upper_y_accum;
+                upper_y_accum = 0;
+                upper_y_mask = -offset_y;
+            }
+            else if ((upper_y_accum + length_y) > (accum_mask.rows - 1)) {
+                offset_y = (accum_mask.rows - 1) - (upper_y_accum + length_y);
+            }
+
+            cv::Rect accum_area(upper_x_accum, upper_y_accum, length_x + offset_x, length_y + offset_y);
+            cv::Rect mask_area(upper_x_mask, upper_y_mask, length_x + offset_x, length_y + offset_y);
+            cv::Mat subrange_accum = accum_mask(accum_area);
+            cv::Mat subrange_mask = circle_mask(mask_area);
+            subrange_mask.copyTo(subrange_accum);
             // accum_mask(mask_area) = 0;
 
+            // // FIXME
+            // std::cout << i << std::endl;
+            // std::cout << "Accum: ";
+            // std::cout << "(" << upper_x_accum << ", " << upper_y_accum << ")\n";
+            // std::cout << "Mask: ";
+            // std::cout << "(" << upper_x_mask << ", " << upper_y_mask << ")\n";
+            // std::cout << "Length: ";
+            // std::cout << "(" << length_x + offset_x << ", " << length_y + offset_y << ")\n";
+
             // Bitwise AND to remove points inside circle
-            bitwise_and(accum_iter, accum_mask, accum_iter);
-            // bitwise_and(accum_mask_debug, accum_mask, accum_mask_debug);
+            if (i != (num_potentials - 1)) {
+                bitwise_and(accum_iter, accum_mask, accum_iter);
+                // bitwise_and(accum_mask_debug, accum_mask, accum_mask_debug);
+            }
         }
 
         // // DEBUG: show mask
         // cv::namedWindow("Mask", cv::WINDOW_NORMAL);
         // cv::resizeWindow("Mask", 700, 700);
         // cv::imshow("Mask", accum_mask_debug);
-        // cvWaitKey(1);
+        // cvWaitKey(50);
     }
 
     void findPointsLocalMax()
     {
         // See: https://stackoverflow.com/questions/5550290/find-local-maxima-in-grayscale-image-using-opencv
+    }
+
+    void checkPotentials(std::vector<cv::Point> &points, cv::Mat &top_image)
+    {
+        // The points vector should be in the image frame (not accumulator frame)
+
+        // DEBUG: Visually check which points are being removed
+        cv::Mat top_image_debug = top_image.clone();
+
+        // Iterate through each point and check if there are any points in the top_image (the 2D compressed point cloud) that are within 75% of the circle radius
+        std::vector<int> to_remove; // indices to remove from points
+        for (int i = 0; i < points.size(); ++i) {
+            // Create a mask to apply over top image
+            cv::Mat top_mask = cv::Mat::zeros(top_image.size(), CV_8U);
+
+            // Create structuring element as circle
+            int scan_pixels = 0.75*radius_pixels;
+            cv::Size mask_size(2*scan_pixels - 1, 2*scan_pixels - 1);
+            cv::Mat circle_mask;
+            circle_mask = cv::getStructuringElement(cv::MORPH_ELLIPSE, mask_size);
+
+            // Add circle to top mask
+            cv::Rect mask_area(points.at(i).x - (scan_pixels - 1), points.at(i).y - (scan_pixels - 1), 2*scan_pixels - 1, 2*scan_pixels - 1);
+            cv::Mat subrange = top_mask(mask_area);
+            circle_mask.copyTo(subrange);
+
+            // FIXME
+            cv::namedWindow("Top Mask", cv::WINDOW_NORMAL);
+            cv::resizeWindow("Top Mask", 700, 700);
+            cv::imshow("Top Mask", circle_mask);
+            cvWaitKey(50);
+
+            cv::Mat result_img;
+            bitwise_and(top_image, top_mask, result_img);
+
+            // If the max of the resulting image is not 0, there is a point within the perspective cylinder's radius
+            double result_max;
+            cv::minMaxLoc(result_img, NULL, &result_max, NULL, NULL);
+
+            if (result_max == 0) {
+                to_remove.push_back(i);
+            }
+        }
+
+        // Now remove the points that are not cylinders, starting from the largest index
+        for (int i = to_remove.size() - 1; i >= 0; --i) {
+            points.erase(points.begin() + to_remove.at(i));
+        }
     }
 
     void cameraToImage(float camera_x_in, float camera_y_in, int& image_x_out, int& image_y_out)
