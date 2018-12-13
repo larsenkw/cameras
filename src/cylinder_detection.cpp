@@ -12,7 +12,7 @@
  * |            x
  * |            |
  * ---------y<--o----------------
- *          camera
+ *          target
  *
  * Note: the image frame has 'x' going to the right and 'y' going down. For the
  * matrices, the rows go down and the columns go right. So the rows represent
@@ -22,9 +22,8 @@
 // TODO: Ways to improve this code
 /*
 1) Instead of using the opencv image matrix to store where the points are, you could save them in a vector storing the (x,y) index of each point, then just iterate through the vector instead of the entire image. In other words, use a sparse matrix instead of dense. *** See if you can use Sparse Matrices for your images and if that makes it any faster ***
-2) Update the code to handle checking out multiple circle locations (by checking the top X maximum points) and then do a sanity-check of some kind to confirm whether it is really the kind of circle we are looking for.
-3) Add in the ability to check for circle of different radii. That way you could add a tolerance on the radius or you could search for multiple circle types.
-4) Create a method for allowing the user to filter out points except those around the expected area of the roll. You will need to convert camera points into world frame and then do your filtering based on a bounding box
+2) Add in the ability to check for circle of different radii. That way you could add a tolerance on the radius or you could search for multiple circle types.
+3) Create a method for allowing the user to filter out points except those around the expected area of the roll. You will need to convert camera points into world frame and then do your filtering based on a bounding box
  */
 
 #include <iostream>
@@ -89,6 +88,8 @@ private:
     //===== Filtering Options
     bool use_threshold_filter; // set to true to perform filtering using the accumulator low and high thresholds
     bool check_center_points; // set to true to remove potential locations which contain points within the cylinder surface
+    bool use_variance_filter; // filters points based off the variance calculated using points within the vicinity of the expected circle
+    bool use_location_filter; // Rejects all points which do not lie near the desired goal location (this should return only one point at most)
 
     //===== Range and Resolution Data
     PointT min_pt; // minimum point in pointcloud
@@ -177,6 +178,8 @@ public:
         //===== Filtering Options =====//
         use_threshold_filter = true;
         check_center_points = true;
+        use_variance_filter = false;
+        use_location_filter = false;
         //=============================//
     }
 
@@ -249,7 +252,7 @@ public:
             // Transform camera points to image indices
             int x_index;
             int y_index;
-            cameraToImage(scene_cloud->points[i].x, scene_cloud->points[i].y, x_index, y_index);
+            targetToImage(scene_cloud->points[i].x, scene_cloud->points[i].y, x_index, y_index);
 
             // Check that the values are within bounds
             if (x_index >= 0 && x_index <= (x_pixels - 1) && y_index >= 0 && y_index <= (y_pixels - 1)) {
@@ -378,17 +381,17 @@ public:
         // cvWaitKey(1);
         //==================================//
 
-        //===== Convert Point Back to Camera Frame and Publish =====//
-        float camera_frame_x;
-        float camera_frame_y;
+        //===== Convert Point Back to Target Frame and Publish =====//
+        float target_frame_x;
+        float target_frame_y;
 
         if (!potentials.empty()) {
-            imageToCamera(potentials.at(0).x, potentials.at(0).y, camera_frame_x, camera_frame_y);
+            imageToTarget(potentials.at(0).x, potentials.at(0).y, target_frame_x, target_frame_y);
             geometry_msgs::PointStamped cylinder_point;
             cylinder_point.header = msg.header;
             cylinder_point.header.frame_id = target_frame.c_str();
-            cylinder_point.point.x = camera_frame_x;
-            cylinder_point.point.y = camera_frame_y;
+            cylinder_point.point.x = target_frame_x;
+            cylinder_point.point.y = target_frame_y;
             cylinder_point.point.z = 0;
             cyl_pub.publish(cylinder_point);
         }
@@ -400,14 +403,14 @@ public:
         cyl_markers.markers.push_back(delete_markers);
         for (int i = 0; i < potentials.size(); ++i) {
             // DEBUG: Show cylinder marker
-            imageToCamera(potentials.at(i).x, potentials.at(i).y, camera_frame_x, camera_frame_y);
+            imageToTarget(potentials.at(i).x, potentials.at(i).y, target_frame_x, target_frame_y);
             visualization_msgs::Marker cyl_marker;
             cyl_marker.header = msg.header;
             cyl_marker.header.frame_id = target_frame.c_str();
             cyl_marker.id = i+1;
             cyl_marker.type = visualization_msgs::Marker::CYLINDER;
-            cyl_marker.pose.position.x = camera_frame_x;
-            cyl_marker.pose.position.y = camera_frame_y;
+            cyl_marker.pose.position.x = target_frame_x;
+            cyl_marker.pose.position.y = target_frame_y;
             cyl_marker.pose.position.z = 0;
             cyl_marker.pose.orientation.x = 0;
             cyl_marker.pose.orientation.y = 0;
@@ -1034,8 +1037,8 @@ public:
                         double y;
                         double x_c;
                         double y_c;
-                        imageToCamera(points.at(n).x, points.at(n).y, x_c, y_c);
-                        imageToCamera(i, j, x, y);
+                        imageToTarget(points.at(n).x, points.at(n).y, x_c, y_c);
+                        imageToTarget(i, j, x, y);
                         double r = calculateRadius(x, y, x_c, y_c);
                         // Check if radius is in bounds
                         if ((r < upper_radius) && (r > lower_radius)) {
@@ -1063,12 +1066,6 @@ public:
         for (int i = to_remove.size() - 1; i >= 0; --i) {
             points.erase(points.begin() + to_remove.at(i));
         }
-
-        // // FIXME: print
-        // std::cout << "Variances\n";
-        // for (int i = 0; i < variances.size(); ++i) {
-        //     std::cout << i << ": " << variances.at(i) << std::endl;
-        // }
     }
 
     double calculateRadius(double x, double y, double x_c, double y_c)
@@ -1076,53 +1073,65 @@ public:
         return sqrt(pow(x - x_c, 2) + pow(y - y_c, 2));
     }
 
-    void cameraToImage(float camera_x_in, float camera_y_in, int& image_x_out, int& image_y_out)
+    void targetFilter(std::vector<cv::Point> &points, cv::Point target)
+    {
+        // Checks all the potential points against a target point and accepts the closest one within a range. If no points are within the range, it returns an empty points vector.
+
+        for (int i = 0; i < points.size(); ++i) {
+            // Convert points from image frame to target frame
+            double target_x;
+            double target_y;
+        }
+
+    }
+
+    void targetToImage(float target_x_in, float target_y_in, int& image_x_out, int& image_y_out)
     {
         // Calculate the x index
-        float y_mirror = -camera_y_in;
+        float y_mirror = -target_y_in;
         float y_translated = y_mirror - y_mirror_min;
         image_x_out = trunc(y_translated/x_pixel_delta);
 
         // Calculate the y index
-        int y_index_flipped = trunc(camera_x_in/y_pixel_delta); // camera frame has positive going up, but image frame has positive going down, so find y with positive up first, then flip it
+        int y_index_flipped = trunc(target_x_in/y_pixel_delta); // target frame has positive going up, but image frame has positive going down, so find y with positive up first, then flip it
         image_y_out = (y_pixels - 1) - y_index_flipped;
     }
 
-    void imageToCamera(int image_x_in, int image_y_in, float& camera_x_out, float& camera_y_out)
+    void imageToTarget(int image_x_in, int image_y_in, float& target_x_out, float& target_y_out)
     {
         // Calculate the x position
         int y_index_flipped = (y_pixels - 1) - image_y_in;
-        camera_x_out = (y_index_flipped*y_pixel_delta) + (y_pixel_delta/2); // place at middle of pixel
+        target_x_out = (y_index_flipped*y_pixel_delta) + (y_pixel_delta/2); // place at middle of pixel
 
         // Calculate the y position
         float y_translated = (image_x_in*x_pixel_delta) + (x_pixel_delta/2); // place at middle of pixel
         float y_mirror = y_translated + y_mirror_min;
-        camera_y_out = -y_mirror;
+        target_y_out = -y_mirror;
     }
 
     // Overloaded function to handle 'double' inputs
-    void cameraToImage(double& camera_x_in, double& camera_y_in, int& image_x_out, int& image_y_out)
+    void targetToImage(double& target_x_in, double& target_y_in, int& image_x_out, int& image_y_out)
     {
         // Calculate the x index
-        double y_mirror = -camera_y_in;
+        double y_mirror = -target_y_in;
         double y_translated = y_mirror - y_mirror_min;
         image_x_out = trunc(y_translated/x_pixel_delta);
 
         // Calculate the y index
-        int y_index_flipped = trunc(camera_x_in/y_pixel_delta); // camera frame has positive going up, but image frame has positive going down, so find y with positive up first, then flip it
+        int y_index_flipped = trunc(target_x_in/y_pixel_delta); // camera frame has positive going up, but image frame has positive going down, so find y with positive up first, then flip it
         image_y_out = (y_pixels - 1) - y_index_flipped;
     }
     // Overloaded function to handle 'double' inputs
-    void imageToCamera(int image_x_in, int image_y_in, double& camera_x_out, double& camera_y_out)
+    void imageToTarget(int image_x_in, int image_y_in, double& target_x_out, double& target_y_out)
     {
         // Calculate the x position
         int y_index_flipped = (y_pixels - 1) - image_y_in;
-        camera_x_out = (y_index_flipped*y_pixel_delta) + (y_pixel_delta/2); // place at middle of pixel
+        target_x_out = (y_index_flipped*y_pixel_delta) + (y_pixel_delta/2); // place at middle of pixel
 
         // Calculate the y position
         double y_translated = (image_x_in*x_pixel_delta) + (x_pixel_delta/2); // place at middle of pixel
         double y_mirror = y_translated + y_mirror_min;
-        camera_y_out = -y_mirror;
+        target_y_out = -y_mirror;
     }
 
     void imageToAccumulator(int image_x_in, int image_y_in, int& accum_x_out, int& accum_y_out)
