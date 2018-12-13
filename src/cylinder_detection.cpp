@@ -35,6 +35,7 @@
 #include <geometry_msgs/Pose.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <visualization_msgs/Marker.h>
+#include <visualization_msgs/MarkerArray.h>
 #include <tf/transform_listener.h>
 #include <opencv2/opencv.hpp>
 #include <pcl/common/common.h>
@@ -60,6 +61,7 @@ private:
     ros::Subscriber pc_sub; // subscribes to pointcloud data
     ros::Publisher cyl_pub; // publish the position of the cylinder as a pose
     ros::Publisher marker_pub; // publish cylinder marker
+    ros::Publisher pc_debug_pub; // publish filtered pointcloud for debugging
     tf::TransformListener tf_listener;
     std::string camera_name;
     std::string default_frame;
@@ -81,6 +83,12 @@ private:
     double circle_radius; // m
     double scale; // scaling factor for the image window
     int num_potentials; // number of potential points to check for selecting if/where a cylinder is present
+    int threshold_low; // lower cutoff value for accepting a center point from the accumulator
+    int threshold_high; // upper cutoff value for accepting a center point from the accumulator
+
+    //===== Filtering Options
+    bool use_threshold_filter; // set to true to perform filtering using the accumulator low and high thresholds
+    bool check_center_points; // set to true to remove potential locations which contain points within the cylinder surface
 
     //===== Range and Resolution Data
     PointT min_pt; // minimum point in pointcloud
@@ -141,7 +149,8 @@ public:
         ROS_INFO("Transforming cloud to '%s' frame", target_frame.c_str());
         pc_sub = nh_.subscribe(point_topic.c_str(), 1, &CylinderDetector::pcCallback, this);
         cyl_pub = nh_.advertise<geometry_msgs::PointStamped>("point", 1);
-        marker_pub = nh_.advertise<visualization_msgs::Marker>("marker", 1);
+        marker_pub = nh_.advertise<visualization_msgs::MarkerArray>("markers", 1);
+        pc_debug_pub = nh_.advertise<sensor_msgs::PointCloud2>("filtered_points", 1);
 
         //===== Tuning Paramters =====//
         max_distance_x = 6; // m
@@ -158,8 +167,17 @@ public:
         rotation_resolution = 0.01; // radians/section
         circle_radius = 0.150; // m
         scale = 0.6; // scale the image window
-        num_potentials = 5;
+        num_potentials = 30;
+        // Default minimum is number of pixels making 1/5 of a circle with a single pixel line
+        threshold_low = (1.0/5)*(2*round(circle_radius*resolution) - 1);
+        // Default maximum is number of pixels making half of a circle with 2 layers of pixels
+        threshold_high = 2*(2*round(circle_radius*resolution) - 1);
         //============================//
+
+        //===== Filtering Options =====//
+        use_threshold_filter = true;
+        check_center_points = true;
+        //=============================//
     }
 
     void pcCallback(const sensor_msgs::PointCloud2 &msg)
@@ -195,6 +213,11 @@ public:
         pass.setFilterFieldName("z");
         pass.setFilterLimits(-0.100, 0.500);
         pass.filter(*scene_cloud);
+
+        // DEBUG: Publish filtered pointcloud
+        sensor_msgs::PointCloud2 pc_msg;
+        pclToROSMsg(scene_cloud, pc_msg);
+        pc_debug_pub.publish(pc_msg);
         //=================================================//
 
         //===== Generate 2D Image =====//
@@ -248,6 +271,20 @@ public:
             drawContours(top_image_contours, contours, i, cv::Scalar(255, 255, 255), 1, 8, hierarchy, 0);
         }
 
+        // // FIXME: Compare Canny edge detection image with contour image
+        // int lowThreshold = 50;
+        // cv::Mat top_blur;
+        // cv::blur(top_image, top_blur, cv::Size(3,3));
+        // cv::Mat top_edges;
+        // cv::Canny(top_blur, top_edges, lowThreshold, lowThreshold*3, 3);
+        // cv::namedWindow("Contours", cv::WINDOW_NORMAL);
+        // cv::resizeWindow("Contours", 700, 700);
+        // cv::imshow("Contours", top_image_contours);
+        // cv::namedWindow("Edges", cv::WINDOW_NORMAL);
+        // cv::resizeWindow("Edges", 700, 700);
+        // cv::imshow("Edges", top_edges);
+        // cvWaitKey(100);
+
         //----- Create an image fixed in place based on 'max/min_fixed_x' and 'max/min_fixed_y', for stable visualization
         int x_offset_pixels;
         int y_offset_pixels;
@@ -265,26 +302,45 @@ public:
         generateAccumulatorUsingImage(top_image_contours, accumulator);
         // generateAccumulatorUsingImage_OldMethod(top_image_contours, accumulator);
 
+        // DEBUG: get the top cylinder position for drawing a circle on the image for debuggin
         // Scale accumulator matrix for better visualization
         double accum_max;
         double accum_min;
         cv::Point max_loc;
         cv::Point min_loc;
         cv::minMaxLoc(accumulator, &accum_min, &accum_max, &min_loc, &max_loc);
-        cv::Mat accumulator_scaled = accumulator*(USHRT_MAX/accum_max);
-        accumulator *= (USHRT_MAX/accum_max); // if you change accumulator type you will need to change the max value
-
+        cv::Mat accumulator_scaled = accumulator*(USHRT_MAX/accum_max); // if you change accumulator type you will need to change the max value
         // Get the maximum point of accumulator (center of the circle)
         int circle_index_x;
         int circle_index_y;
         accumulatorToImage(max_loc.x, max_loc.y, circle_index_x, circle_index_y);
 
         // Generate mask for removing max
-        // potentials.clear();
-        // findPointsDeletion(potentials, accumulator);
+        potentials.clear();
+        findPointsDeletion(potentials, accumulator_scaled);
+
+        // FIXME: print
+        std::cout << "Pre-threshold-filter: " << potentials.size() << std::endl;
+
+        // Filter using a accumulator threshold values
+        if (use_threshold_filter) {
+            thresholdFilter(potentials, accumulator);
+        }
+
+        // FIXME: print
+        std::cout << "Pre-center-check: " << potentials.size() << std::endl;
 
         // Check if the potential points could be valid cylinder points
-        // checkPotentials(potentials, top_image);
+        if (check_center_points) {
+            checkCenterPoints(potentials, top_image);
+        }
+
+        // FIXME: print
+        std::cout << "Post-center-check: " << potentials.size() << std::endl;
+
+        // Filter potentials based on variance of points around circle
+        std::vector<double> variances(potentials.size(), 0);
+        varianceFilter(potentials, variances, top_image);
 
         // // DEBUG: Hightlight the max point with a circle
         // cv::Mat top_image_rgb;
@@ -325,33 +381,50 @@ public:
         //===== Convert Point Back to Camera Frame and Publish =====//
         float camera_frame_x;
         float camera_frame_y;
-        imageToCamera(circle_index_x, circle_index_y, camera_frame_x, camera_frame_y);
-        geometry_msgs::PointStamped cylinder_point;
-        cylinder_point.header = msg.header;
-        cylinder_point.header.frame_id = target_frame.c_str();
-        cylinder_point.point.x = camera_frame_x;
-        cylinder_point.point.y = camera_frame_y;
-        cylinder_point.point.z = 0;
-        cyl_pub.publish(cylinder_point);
 
-        // DEBUG: Show cylinder marker
-        visualization_msgs::Marker cyl_marker;
-        cyl_marker.header = cylinder_point.header;
-        cyl_marker.id = 1;
-        cyl_marker.type = visualization_msgs::Marker::CYLINDER;
-        cyl_marker.pose.position = cylinder_point.point;
-        cyl_marker.pose.orientation.x = 0;
-        cyl_marker.pose.orientation.y = 0;
-        cyl_marker.pose.orientation.z = 0;
-        cyl_marker.pose.orientation.w = 1.0;
-        cyl_marker.scale.x = 0.20;
-        cyl_marker.scale.y = 0.20;
-        cyl_marker.scale.z = 1.0;
-        cyl_marker.color.a = 1.0;
-        cyl_marker.color.r = 1.0;
-        cyl_marker.color.g = 1.0;
-        cyl_marker.color.b = 1.0;
-        marker_pub.publish(cyl_marker);
+        if (!potentials.empty()) {
+            imageToCamera(potentials.at(0).x, potentials.at(0).y, camera_frame_x, camera_frame_y);
+            geometry_msgs::PointStamped cylinder_point;
+            cylinder_point.header = msg.header;
+            cylinder_point.header.frame_id = target_frame.c_str();
+            cylinder_point.point.x = camera_frame_x;
+            cylinder_point.point.y = camera_frame_y;
+            cylinder_point.point.z = 0;
+            cyl_pub.publish(cylinder_point);
+        }
+
+        visualization_msgs::MarkerArray cyl_markers;
+        // Delete previous markers
+        visualization_msgs::Marker delete_markers;
+        delete_markers.action = visualization_msgs::Marker::DELETEALL;
+        cyl_markers.markers.push_back(delete_markers);
+        for (int i = 0; i < potentials.size(); ++i) {
+            // DEBUG: Show cylinder marker
+            imageToCamera(potentials.at(i).x, potentials.at(i).y, camera_frame_x, camera_frame_y);
+            visualization_msgs::Marker cyl_marker;
+            cyl_marker.header = msg.header;
+            cyl_marker.header.frame_id = target_frame.c_str();
+            cyl_marker.id = i+1;
+            cyl_marker.type = visualization_msgs::Marker::CYLINDER;
+            cyl_marker.pose.position.x = camera_frame_x;
+            cyl_marker.pose.position.y = camera_frame_y;
+            cyl_marker.pose.position.z = 0;
+            cyl_marker.pose.orientation.x = 0;
+            cyl_marker.pose.orientation.y = 0;
+            cyl_marker.pose.orientation.z = 0;
+            cyl_marker.pose.orientation.w = 1.0;
+            cyl_marker.scale.x = 0.75*(2*circle_radius);
+            cyl_marker.scale.y = 0.75*(2*circle_radius);
+            cyl_marker.scale.z = 1.0;
+            cyl_marker.color.a = 1.0;
+            cyl_marker.color.r = 1.0;
+            cyl_marker.color.g = 1.0;
+            cyl_marker.color.b = 1.0;
+            cyl_marker.lifetime = ros::Duration(1/100);
+            cyl_markers.markers.push_back(cyl_marker);
+        }
+
+        marker_pub.publish(cyl_markers);
         //==========================================================//
     }
 
@@ -360,6 +433,12 @@ public:
         pcl::PCLPointCloud2 pcl_pc2;
         pcl_conversions::toPCL(msg, pcl_pc2);
         pcl::fromPCLPointCloud2(pcl_pc2, *cloud);
+    }
+
+    void pclToROSMsg(pcl::PointCloud<PointT>::Ptr cloud, sensor_msgs::PointCloud2& msg) {
+        pcl::PCLPointCloud2 pcl_pc2;
+        pcl::toPCLPointCloud2(*cloud, pcl_pc2);
+        pcl_conversions::fromPCL(pcl_pc2, msg);
     }
 
     void transformPointCloud(pcl::PointCloud<PointT>::Ptr cloud_in, pcl::PointCloud<PointT>:: Ptr cloud_out, std::string frame_in, std::string frame_out)
@@ -705,6 +784,10 @@ public:
         cv::Mat accum_iter = accumulator.clone();
         // cv::Mat accum_mask_debug = cv::Mat(accum_iter.rows, accum_iter.cols, CV_16U, USHRT_MAX);
 
+        // // FIXME: print
+        // std::cout << "===== Max Values =====\n";
+        // std::cout << "Radius pixels: " << radius_pixels << std::endl;
+
         for (int i = 0; i < num_potentials; ++i) {
             // Grab Max
             double accum_max;
@@ -712,6 +795,9 @@ public:
             cv::Point max_loc;
             cv::Point min_loc;
             cv::minMaxLoc(accum_iter, &accum_min, &accum_max, &min_loc, &max_loc);
+
+            // // DEBUG: Print the max value
+            // std::cout << i << ": " << accum_max << std::endl;
 
             // Save point
             int circle_index_x;
@@ -781,13 +867,19 @@ public:
             if (i != (num_potentials - 1)) {
                 bitwise_and(accum_iter, accum_mask, accum_iter);
                 // bitwise_and(accum_mask_debug, accum_mask, accum_mask_debug);
+
+                // // DEBUG: show mask
+                // cv::namedWindow("Mask", cv::WINDOW_NORMAL);
+                // cv::resizeWindow("Mask", 700, 700);
+                // cv::imshow("Mask", accum_iter);
+                // cvWaitKey(200);
             }
         }
 
         // // DEBUG: show mask
         // cv::namedWindow("Mask", cv::WINDOW_NORMAL);
         // cv::resizeWindow("Mask", 700, 700);
-        // cv::imshow("Mask", accum_mask_debug);
+        // cv::imshow("Mask", accum_iter);
         // cvWaitKey(50);
     }
 
@@ -796,12 +888,38 @@ public:
         // See: https://stackoverflow.com/questions/5550290/find-local-maxima-in-grayscale-image-using-opencv
     }
 
-    void checkPotentials(std::vector<cv::Point> &points, cv::Mat &top_image)
+    void thresholdFilter(std::vector<cv::Point> &points, cv::Mat &accumulator) {
+        // Convert points to accumulator frame, then check if the value at that point is within the desired threshold
+        int accum_x;
+        int accum_y;
+        std::vector<int> to_remove;
+        for (int i = 0; i < points.size(); ++i) {
+            imageToAccumulator(points.at(i).x, points.at(i).y, accum_x, accum_y);
+            int value = accumulator.at<uint16_t>(cv::Point(accum_x, accum_y));
+            if ((value < threshold_low) || (value > threshold_high)) {
+                to_remove.push_back(i);
+            }
+        }
+
+        // Now remove the points that are outside the threshold
+        for (int i = to_remove.size() - 1; i >= 0; --i) {
+            points.erase(points.begin() + to_remove.at(i));
+        }
+    }
+
+    void checkCenterPoints(std::vector<cv::Point> &points, cv::Mat &top_image)
     {
         // The points vector should be in the image frame (not accumulator frame)
 
         // DEBUG: Visually check which points are being removed
         cv::Mat top_image_debug = top_image.clone();
+
+        // Create structuring element as circle
+        int scan_pixels = 0.5*radius_pixels;
+        cv::Size mask_size(2*scan_pixels - 1, 2*scan_pixels - 1);
+        cv::Mat circle_mask;
+        circle_mask = cv::getStructuringElement(cv::MORPH_ELLIPSE, mask_size);
+        circle_mask *= UCHAR_MAX;
 
         // Iterate through each point and check if there are any points in the top_image (the 2D compressed point cloud) that are within 75% of the circle radius
         std::vector<int> to_remove; // indices to remove from points
@@ -809,22 +927,70 @@ public:
             // Create a mask to apply over top image
             cv::Mat top_mask = cv::Mat::zeros(top_image.size(), CV_8U);
 
-            // Create structuring element as circle
-            int scan_pixels = 0.75*radius_pixels;
-            cv::Size mask_size(2*scan_pixels - 1, 2*scan_pixels - 1);
-            cv::Mat circle_mask;
-            circle_mask = cv::getStructuringElement(cv::MORPH_ELLIPSE, mask_size);
+            // Adjust the bounds for the mask if the edges lie outside the image bounds
+            int offset_x = 0;
+            int offset_y = 0;
+            int upper_x_top = points.at(i).x - (scan_pixels - 1);
+            int upper_y_top = points.at(i).y - (scan_pixels - 1);
+            int length_x = 2*scan_pixels - 1;
+            int length_y = 2*scan_pixels - 1;
+            int upper_x_mask = 0;
+            int upper_y_mask = 0;
+
+            // Make sure the edges of the masks are within the image bounds
+            if (upper_x_top < 0) {
+                if (upper_x_top + length_x < 0) {
+                    upper_x_top = 0;
+                    length_x = 0;
+                }
+                else {
+                    offset_x = upper_x_top;
+                    upper_x_top = 0;
+                    upper_x_mask = -offset_x;
+                }
+            }
+            else if ((upper_x_top + length_x) > (top_mask.cols - 1)) {
+                if (upper_x_top > top_mask.cols - 1) {
+                    upper_x_top = 0;
+                    length_x = 0;
+                }
+                else {
+                    offset_x = (top_mask.cols - 1) - (upper_x_top + length_x);
+                }
+            }
+            if (upper_y_top < 0) {
+                if (upper_y_top + length_y < 0) {
+                    upper_y_top = 0;
+                    length_y = 0;
+                }
+                else {
+                    offset_y = upper_y_top;
+                    upper_y_top = 0;
+                    upper_y_mask = -offset_y;
+                }
+            }
+            else if ((upper_y_top + length_y) > (top_mask.rows - 1)) {
+                if (upper_y_top > top_mask.rows - 1) {
+                    upper_y_top = 0;
+                    length_y = 0;
+                }
+                else {
+                    offset_y = (top_mask.rows - 1) - (upper_y_top + length_y);
+                }
+            }
 
             // Add circle to top mask
-            cv::Rect mask_area(points.at(i).x - (scan_pixels - 1), points.at(i).y - (scan_pixels - 1), 2*scan_pixels - 1, 2*scan_pixels - 1);
-            cv::Mat subrange = top_mask(mask_area);
-            circle_mask.copyTo(subrange);
+            cv::Rect top_area(upper_x_top, upper_y_top, length_x + offset_x, length_y + offset_y);
+            cv::Rect mask_area(upper_x_mask, upper_y_mask, length_x + offset_x, length_y + offset_y);
+            cv::Mat subrange_top = top_mask(top_area);
+            cv::Mat subrange_mask = circle_mask(mask_area);
+            subrange_mask.copyTo(subrange_top);
 
-            // FIXME
-            cv::namedWindow("Top Mask", cv::WINDOW_NORMAL);
-            cv::resizeWindow("Top Mask", 700, 700);
-            cv::imshow("Top Mask", circle_mask);
-            cvWaitKey(50);
+            // // FIXME
+            // cv::namedWindow("Top Mask", cv::WINDOW_NORMAL);
+            // cv::resizeWindow("Top Mask", 700, 700);
+            // cv::imshow("Top Mask", top_mask);
+            // cvWaitKey(50);
 
             cv::Mat result_img;
             bitwise_and(top_image, top_mask, result_img);
@@ -833,7 +999,7 @@ public:
             double result_max;
             cv::minMaxLoc(result_img, NULL, &result_max, NULL, NULL);
 
-            if (result_max == 0) {
+            if (result_max != 0) {
                 to_remove.push_back(i);
             }
         }
@@ -842,6 +1008,72 @@ public:
         for (int i = to_remove.size() - 1; i >= 0; --i) {
             points.erase(points.begin() + to_remove.at(i));
         }
+    }
+
+    void varianceFilter(std::vector<cv::Point> &points, std::vector<double> &variances, cv::Mat &top_image)
+    {
+        // 'variances' vector must be the same size as 'points'
+        if (points.size() != variances.size()) {
+            std::cout << "ERROR (varianceFilter): 'variances' and 'points' must be the same size." << std::endl;
+        }
+
+        // TODO: Tuning parameters, add these to the top as member variables
+        double bound_offset = 0.25*(2*circle_radius); // amount to add and subtract to radius to get the upper and lower bounds for accepting points to use in calculating the variance
+        double upper_radius = circle_radius + bound_offset;
+        double lower_radius = circle_radius - bound_offset;
+
+        std::vector<int> var_n(points.size(), 0); // stores the number of points being summed in the variance
+
+        // Iterate through each point in top_image (i = x pixel, j = y pixel)
+        for (int i = 0; i < top_image.cols; ++i) {
+            for (int j = 0; j < top_image.rows; ++j) {
+                // Check if point is not empty
+                if (top_image.at<uint8_t>(cv::Point(i,j))) {
+                    for (int n = 0; n < points.size(); ++n) {
+                        double x;
+                        double y;
+                        double x_c;
+                        double y_c;
+                        imageToCamera(points.at(n).x, points.at(n).y, x_c, y_c);
+                        imageToCamera(i, j, x, y);
+                        double r = calculateRadius(x, y, x_c, y_c);
+                        // Check if radius is in bounds
+                        if ((r < upper_radius) && (r > lower_radius)) {
+                            variances.at(n) += pow((r - circle_radius), 2);
+                            var_n.at(n) += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Get average variance
+        for (int i = 0; i < variances.size(); ++i) {
+            variances.at(i) /= var_n.at(i);
+        }
+
+        std::vector<int> to_remove;
+        for (int i = 0; i < points.size(); ++i) {
+            if (variances.at(i) > 0.001) {
+                to_remove.push_back(i);
+            }
+        }
+
+        // Now remove the points that are less than the threshold
+        for (int i = to_remove.size() - 1; i >= 0; --i) {
+            points.erase(points.begin() + to_remove.at(i));
+        }
+
+        // // FIXME: print
+        // std::cout << "Variances\n";
+        // for (int i = 0; i < variances.size(); ++i) {
+        //     std::cout << i << ": " << variances.at(i) << std::endl;
+        // }
+    }
+
+    double calculateRadius(double x, double y, double x_c, double y_c)
+    {
+        return sqrt(pow(x - x_c, 2) + pow(y - y_c, 2));
     }
 
     void cameraToImage(float camera_x_in, float camera_y_in, int& image_x_out, int& image_y_out)
@@ -865,6 +1097,31 @@ public:
         // Calculate the y position
         float y_translated = (image_x_in*x_pixel_delta) + (x_pixel_delta/2); // place at middle of pixel
         float y_mirror = y_translated + y_mirror_min;
+        camera_y_out = -y_mirror;
+    }
+
+    // Overloaded function to handle 'double' inputs
+    void cameraToImage(double& camera_x_in, double& camera_y_in, int& image_x_out, int& image_y_out)
+    {
+        // Calculate the x index
+        double y_mirror = -camera_y_in;
+        double y_translated = y_mirror - y_mirror_min;
+        image_x_out = trunc(y_translated/x_pixel_delta);
+
+        // Calculate the y index
+        int y_index_flipped = trunc(camera_x_in/y_pixel_delta); // camera frame has positive going up, but image frame has positive going down, so find y with positive up first, then flip it
+        image_y_out = (y_pixels - 1) - y_index_flipped;
+    }
+    // Overloaded function to handle 'double' inputs
+    void imageToCamera(int image_x_in, int image_y_in, double& camera_x_out, double& camera_y_out)
+    {
+        // Calculate the x position
+        int y_index_flipped = (y_pixels - 1) - image_y_in;
+        camera_x_out = (y_index_flipped*y_pixel_delta) + (y_pixel_delta/2); // place at middle of pixel
+
+        // Calculate the y position
+        double y_translated = (image_x_in*x_pixel_delta) + (x_pixel_delta/2); // place at middle of pixel
+        double y_mirror = y_translated + y_mirror_min;
         camera_y_out = -y_mirror;
     }
 
