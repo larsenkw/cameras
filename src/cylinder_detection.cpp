@@ -23,7 +23,7 @@
 /*
 1) Instead of using the opencv image matrix to store where the points are, you could save them in a vector storing the (x,y) index of each point, then just iterate through the vector instead of the entire image. In other words, use a sparse matrix instead of dense. *** See if you can use Sparse Matrices for your images and if that makes it any faster ***
 2) Add in the ability to check for circle of different radii. That way you could add a tolerance on the radius or you could search for multiple circle types.
-3) Create a method for allowing the user to filter out points except those around the expected area of the roll. You will need to convert camera points into world frame and then do your filtering based on a bounding box
+3) Finish function that finds the local maxima to determine which points should be considered potentials (currently just using the deletion method with a set number of points to look for).
  */
 
 #include <iostream>
@@ -80,7 +80,6 @@ private:
     double resolution; // pixels/m, 256 approx. = 1280 pixels / 5 m
     double rotation_resolution; // radians/section
     double circle_radius; // m
-    double scale; // scaling factor for the image window
     int num_potentials; // number of potential points to check for selecting if/where a cylinder is present
     int threshold_low; // lower cutoff value for accepting a center point from the accumulator
     int threshold_high; // upper cutoff value for accepting a center point from the accumulator
@@ -128,6 +127,7 @@ private:
     cv::Mat accumulator_fixed;
     cv::Mat accumulator_rgb;
     std::vector<cv::Point> potentials;
+    cv::Point2d target_point;
 
 public:
     CylinderDetector() :
@@ -142,6 +142,8 @@ public:
         nh_.param<std::string>("camera", camera_name, "camera");
         default_frame = camera_name + "_link";
         nh_.param<std::string>("target_frame", target_frame, default_frame);
+        nh_.param<double>("target_x", target_point.x, 1.0);
+        nh_.param<double>("target_y", target_point.y, 0.0);
 
         // ROS Objects
         std::string point_topic = "/" + camera_name + "/depth/points";
@@ -167,8 +169,7 @@ public:
         resolution = 256.0; // pixels/m, 256 approx. = 1280 pixels / 5 m
         rotation_resolution = 0.01; // radians/section
         circle_radius = 0.150; // m
-        scale = 0.6; // scale the image window
-        num_potentials = 30;
+        num_potentials = 5; // number of maximums to check in accumulator
         // Default minimum is number of pixels making 1/5 of a circle with a single pixel line
         threshold_low = (1.0/5)*(2*round(circle_radius*resolution) - 1);
         // Default maximum is number of pixels making half of a circle with 2 layers of pixels
@@ -179,7 +180,7 @@ public:
         use_threshold_filter = true;
         check_center_points = true;
         use_variance_filter = false;
-        use_location_filter = false;
+        use_location_filter = true;
         //=============================//
     }
 
@@ -322,28 +323,27 @@ public:
         potentials.clear();
         findPointsDeletion(potentials, accumulator_scaled);
 
-        // FIXME: print
-        std::cout << "Pre-threshold-filter: " << potentials.size() << std::endl;
-
         // Filter using a accumulator threshold values
         if (use_threshold_filter) {
             thresholdFilter(potentials, accumulator);
         }
-
-        // FIXME: print
-        std::cout << "Pre-center-check: " << potentials.size() << std::endl;
 
         // Check if the potential points could be valid cylinder points
         if (check_center_points) {
             checkCenterPoints(potentials, top_image);
         }
 
-        // FIXME: print
-        std::cout << "Post-center-check: " << potentials.size() << std::endl;
-
         // Filter potentials based on variance of points around circle
-        std::vector<double> variances(potentials.size(), 0);
-        varianceFilter(potentials, variances, top_image);
+        if (use_variance_filter) {
+            std::vector<double> variances(potentials.size(), 0);
+            varianceFilter(potentials, variances, top_image);
+        }
+
+        // Find the point closest to the desired target
+        // Will only return the single closest point within range (otherwise no points returned)
+        if (use_location_filter) {
+            targetFilter(potentials, target_point);
+        }
 
         // // DEBUG: Hightlight the max point with a circle
         // cv::Mat top_image_rgb;
@@ -1077,12 +1077,31 @@ public:
     {
         // Checks all the potential points against a target point and accepts the closest one within a range. If no points are within the range, it returns an empty points vector.
 
+        double min_distance_sq = 10.0; // current minimum squared distance
+        cv::Point closest_point; // the current closest point to the target
+
         for (int i = 0; i < points.size(); ++i) {
             // Convert points from image frame to target frame
-            double target_x;
-            double target_y;
+            double potential_x;
+            double potential_y;
+            imageToTarget(points.at(i).x, points.at(i).y, potential_x, potential_y);
+
+            // Find minimum distance from target
+            double distance_sq = pow(potential_x - target.x, 2) + pow(potential_y - target.y, 2);
+            if (distance_sq < min_distance_sq) {
+                min_distance_sq = distance_sq;
+                closest_point.x = points.at(i).x;
+                closest_point.y = points.at(i).y;
+            }
         }
 
+        // Clear all the points
+        points.clear();
+
+        // Check if minimum distance is within range, if so store that point, if not leave the points vector empty
+        if (min_distance_sq < pow(circle_radius, 2)) {
+            points.push_back(closest_point);
+        }
     }
 
     void targetToImage(float target_x_in, float target_y_in, int& image_x_out, int& image_y_out)
