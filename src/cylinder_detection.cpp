@@ -23,7 +23,8 @@
 /*
 1) Instead of using the opencv image matrix to store where the points are, you could save them in a vector storing the (x,y) index of each point, then just iterate through the vector instead of the entire image. In other words, use a sparse matrix instead of dense. *** See if you can use Sparse Matrices for your images and if that makes it any faster ***
 2) Add in the ability to check for circle of different radii. That way you could add a tolerance on the radius or you could search for multiple circle types.
-3) Finish function that finds the local maxima to determine which points should be considered potentials (currently just using the deletion method with a set number of points to look for).
+3) Finish function that finds the local maxima to determine which points should be considered potentials (this should help to avoid placing cylinders next to walls, since the there should be many local maxima near a wall).
+4) Filter out planes using PCL segmentation
  */
 
 #include <iostream>
@@ -32,6 +33,7 @@
 #include <limits.h>
 #include <ros/ros.h>
 #include <geometry_msgs/Pose.h>
+#include <geometry_msgs/PointStamped.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <visualization_msgs/Marker.h>
 #include <visualization_msgs/MarkerArray.h>
@@ -63,7 +65,7 @@ private:
     ros::Publisher pc_debug_pub; // publish filtered pointcloud for debugging
     tf::TransformListener tf_listener;
     std::string camera_name;
-    std::string default_frame;
+    std::string camera_frame;
     std::string target_frame;
 
     //===== Tuning Paramters
@@ -77,12 +79,16 @@ private:
     float min_fixed_x; // m
     float max_fixed_y; // m
     float min_fixed_y; // m
+    float filter_z_low; // m
+    float filter_z_high; // m
     double resolution; // pixels/m, 256 approx. = 1280 pixels / 5 m
     double rotation_resolution; // radians/section
     double circle_radius; // m
     int num_potentials; // number of potential points to check for selecting if/where a cylinder is present
     int threshold_low; // lower cutoff value for accepting a center point from the accumulator
     int threshold_high; // upper cutoff value for accepting a center point from the accumulator
+    double variance_tolerance; // upper threshold for the variance
+    double target_tolerance; // maximum distance from target to be accepted as a viable cylinder location, in meters
 
     //===== Filtering Options
     bool use_threshold_filter; // set to true to perform filtering using the accumulator low and high thresholds
@@ -140,22 +146,26 @@ public:
     {
         // Load Parameters
         nh_.param<std::string>("camera", camera_name, "camera");
-        default_frame = camera_name + "_link";
-        nh_.param<std::string>("target_frame", target_frame, default_frame);
+        camera_frame = camera_name + "_link";
+        nh_.param<std::string>("target_frame", target_frame, camera_frame);
         nh_.param<double>("target_x", target_point.x, 1.0);
         nh_.param<double>("target_y", target_point.y, 0.0);
+        nh_.param<double>("cirlce_radius", circle_radius, 0.200);
+        nh_.param<double>("target_tolerance", target_tolerance, circle_radius);
 
         // ROS Objects
         std::string point_topic = "/" + camera_name + "/depth/points";
-        target_frame.insert(0, "/"); // camera is assumed to be level with the ground, this frame must one where Z is up
+        //camera_frame.insert(0, "/"); // camera is assumed to be level with the ground, this frame must one where Z is up
+        //target_frame.insert(0, "/"); // this frame should have the Z axis pointing upward
         ROS_INFO("Reading depth points from: %s", point_topic.c_str());
-        ROS_INFO("Transforming cloud to '%s' frame", target_frame.c_str());
+        ROS_INFO("Transforming cloud to '%s' frame", camera_frame.c_str());
         pc_sub = nh_.subscribe(point_topic.c_str(), 1, &CylinderDetector::pcCallback, this);
         cyl_pub = nh_.advertise<geometry_msgs::PointStamped>("point", 1);
         marker_pub = nh_.advertise<visualization_msgs::MarkerArray>("markers", 1);
         pc_debug_pub = nh_.advertise<sensor_msgs::PointCloud2>("filtered_points", 1);
 
         //===== Tuning Paramters =====//
+        // These parameters are all based on the camera link frame (where Z axis is up)
         max_distance_x = 6; // m
         min_distance_x = 0; // m
         max_distance_y = 5; // m
@@ -166,9 +176,10 @@ public:
         min_fixed_x = 0.5; // m
         max_fixed_y = 2.5; // m
         min_fixed_y = -2.5; // m
+        filter_z_low = -0.100; // m
+        filter_z_high = 0.500; // m
         resolution = 256.0; // pixels/m, 256 approx. = 1280 pixels / 5 m
         rotation_resolution = 0.01; // radians/section
-        circle_radius = 0.150; // m
         num_potentials = 5; // number of maximums to check in accumulator
         // Default minimum is number of pixels making 1/5 of a circle with a single pixel line
         threshold_low = (1.0/5)*(2*round(circle_radius*resolution) - 1);
@@ -179,7 +190,7 @@ public:
         //===== Filtering Options =====//
         use_threshold_filter = true;
         check_center_points = true;
-        use_variance_filter = false;
+        use_variance_filter = true;
         use_location_filter = true;
         //=============================//
     }
@@ -190,8 +201,8 @@ public:
         // Convert ROS PointCloud2 message into PCL pointcloud
         rosMsgToPCL(msg, scene_cloud_optical_frame);
 
-        // Transform pointcloud into appropriate frame
-        transformPointCloud(scene_cloud_optical_frame, scene_cloud_unfiltered, msg.header.frame_id, target_frame);
+        // Transform pointcloud into camera frame
+        transformPointCloud(scene_cloud_optical_frame, scene_cloud_unfiltered, msg.header.frame_id, camera_frame);
 
         // Get the bounds of the point cloud
         pcl::getMinMax3D(*scene_cloud_unfiltered, min_pt, max_pt);
@@ -215,13 +226,18 @@ public:
         pcl::PassThrough<PointT> pass; // passthrough filter
         pass.setInputCloud(scene_cloud_unfiltered);
         pass.setFilterFieldName("z");
-        pass.setFilterLimits(-0.100, 0.500);
+        pass.setFilterLimits(filter_z_low, filter_z_high);
         pass.filter(*scene_cloud);
 
         // DEBUG: Publish filtered pointcloud
         sensor_msgs::PointCloud2 pc_msg;
         pclToROSMsg(scene_cloud, pc_msg);
         pc_debug_pub.publish(pc_msg);
+
+        // If final pointcloud contains no points, exit the callback
+        if (scene_cloud->size() == 0) {
+            return;
+        }
         //=================================================//
 
         //===== Generate 2D Image =====//
@@ -253,7 +269,7 @@ public:
             // Transform camera points to image indices
             int x_index;
             int y_index;
-            targetToImage(scene_cloud->points[i].x, scene_cloud->points[i].y, x_index, y_index);
+            cameraToImage(scene_cloud->points[i].x, scene_cloud->points[i].y, x_index, y_index);
 
             // Check that the values are within bounds
             if (x_index >= 0 && x_index <= (x_pixels - 1) && y_index >= 0 && y_index <= (y_pixels - 1)) {
@@ -337,6 +353,20 @@ public:
         if (use_variance_filter) {
             std::vector<double> variances(potentials.size(), 0);
             varianceFilter(potentials, variances, top_image);
+
+            // DEBUG: write variances to file
+            std::ofstream out_file;
+            out_file.open("/home/csm/Desktop/variances.csv", std::fstream::app);
+            for (int i = 0; i < variances.size(); i++) {
+                out_file << variances.at(i);
+                if (i != variances.size() - 1) {
+                    out_file << ",";
+                }
+                else {
+                    out_file << "\n";
+                }
+            }
+            out_file.close();
         }
 
         // Find the point closest to the desired target
@@ -371,27 +401,27 @@ public:
         // cv::imshow("Top Image Contours", top_image_contours);
         //
         // cv::namedWindow("Top Image", cv::WINDOW_NORMAL);
-        // cv::resizeWindow("Top Image", 700, 700);
+        // cv::resizeWindow("Top Image", 900, 1000);
         // cv::imshow("Top Image", top_image);
         //
         // cv::namedWindow("Accumulator", cv::WINDOW_NORMAL);
-        // cv::resizeWindow("Accumulator", 700, 700);
+        // cv::resizeWindow("Accumulator", 900, 1000);
         // cv::imshow("Accumulator", accumulator_scaled);
         //
         // cvWaitKey(1);
         //==================================//
 
-        //===== Convert Point Back to Target Frame and Publish =====//
-        float target_frame_x;
-        float target_frame_y;
+        //===== Convert Point Back to Camera Frame and Publish =====//
+        float camera_frame_x;
+        float camera_frame_y;
 
         if (!potentials.empty()) {
-            imageToTarget(potentials.at(0).x, potentials.at(0).y, target_frame_x, target_frame_y);
+            imageToCamera(potentials.at(0).x, potentials.at(0).y, camera_frame_x, camera_frame_y);
             geometry_msgs::PointStamped cylinder_point;
             cylinder_point.header = msg.header;
-            cylinder_point.header.frame_id = target_frame.c_str();
-            cylinder_point.point.x = target_frame_x;
-            cylinder_point.point.y = target_frame_y;
+            cylinder_point.header.frame_id = camera_frame.c_str();
+            cylinder_point.point.x = camera_frame_x;
+            cylinder_point.point.y = camera_frame_y;
             cylinder_point.point.z = 0;
             cyl_pub.publish(cylinder_point);
         }
@@ -403,14 +433,14 @@ public:
         cyl_markers.markers.push_back(delete_markers);
         for (int i = 0; i < potentials.size(); ++i) {
             // DEBUG: Show cylinder marker
-            imageToTarget(potentials.at(i).x, potentials.at(i).y, target_frame_x, target_frame_y);
+            imageToCamera(potentials.at(i).x, potentials.at(i).y, camera_frame_x, camera_frame_y);
             visualization_msgs::Marker cyl_marker;
             cyl_marker.header = msg.header;
-            cyl_marker.header.frame_id = target_frame.c_str();
+            cyl_marker.header.frame_id = camera_frame.c_str();
             cyl_marker.id = i+1;
             cyl_marker.type = visualization_msgs::Marker::CYLINDER;
-            cyl_marker.pose.position.x = target_frame_x;
-            cyl_marker.pose.position.y = target_frame_y;
+            cyl_marker.pose.position.x = camera_frame_x;
+            cyl_marker.pose.position.y = camera_frame_y;
             cyl_marker.pose.position.z = 0;
             cyl_marker.pose.orientation.x = 0;
             cyl_marker.pose.orientation.y = 0;
@@ -1015,6 +1045,7 @@ public:
 
     void varianceFilter(std::vector<cv::Point> &points, std::vector<double> &variances, cv::Mat &top_image)
     {
+        // The points vector should be in the image frame (not accumulator frame)
         // 'variances' vector must be the same size as 'points'
         if (points.size() != variances.size()) {
             std::cout << "ERROR (varianceFilter): 'variances' and 'points' must be the same size." << std::endl;
@@ -1037,8 +1068,8 @@ public:
                         double y;
                         double x_c;
                         double y_c;
-                        imageToTarget(points.at(n).x, points.at(n).y, x_c, y_c);
-                        imageToTarget(i, j, x, y);
+                        imageToCamera(points.at(n).x, points.at(n).y, x_c, y_c);
+                        imageToCamera(i, j, x, y);
                         double r = calculateRadius(x, y, x_c, y_c);
                         // Check if radius is in bounds
                         if ((r < upper_radius) && (r > lower_radius)) {
@@ -1057,7 +1088,13 @@ public:
 
         std::vector<int> to_remove;
         for (int i = 0; i < points.size(); ++i) {
-            if (variances.at(i) > 0.001) {
+            // variance_tolerance = 0.001; // good baseline
+            // This equation calculates a tolerance based on distance from the camera. It was derived empirically. This assumes the target frame is the camera frame.
+            double x,y;
+            imageToCamera(points.at(i).x, points.at(i).y, x, y);
+            double distance = sqrt(pow(x,2) + pow(y,2));
+            variance_tolerance = 0.0003*distance + 0.0001;
+            if (variances.at(i) > variance_tolerance) {
                 to_remove.push_back(i);
             }
         }
@@ -1080,14 +1117,24 @@ public:
         double min_distance_sq = 10.0; // current minimum squared distance
         cv::Point closest_point; // the current closest point to the target
 
+        // Before cycling through all the points, convert the target point into camera frame.
+        double target_cam_x;
+        double target_cam_y;
+        targetToCamera(target.x, target.y, target_cam_x, target_cam_y);
+
         for (int i = 0; i < points.size(); ++i) {
             // Convert points from image frame to target frame
+            double potential_x_camera;
+            double potential_y_camera;
             double potential_x;
             double potential_y;
-            imageToTarget(points.at(i).x, points.at(i).y, potential_x, potential_y);
+            imageToCamera(points.at(i).x, points.at(i).y, potential_x, potential_y);
+
+            // Convert from camera frame to target frame
+            //cameraToTarget(potential_x_camera, potential_y_camera, potential_x, potential_y);
 
             // Find minimum distance from target
-            double distance_sq = pow(potential_x - target.x, 2) + pow(potential_y - target.y, 2);
+            double distance_sq = pow(potential_x - target_cam_x, 2) + pow(potential_y - target_cam_y, 2);
             if (distance_sq < min_distance_sq) {
                 min_distance_sq = distance_sq;
                 closest_point.x = points.at(i).x;
@@ -1099,58 +1146,58 @@ public:
         points.clear();
 
         // Check if minimum distance is within range, if so store that point, if not leave the points vector empty
-        if (min_distance_sq < pow(circle_radius, 2)) {
+        if (min_distance_sq < pow(target_tolerance, 2)) {
             points.push_back(closest_point);
         }
     }
 
-    void targetToImage(float target_x_in, float target_y_in, int& image_x_out, int& image_y_out)
+    void cameraToImage(float camera_x_in, float camera_y_in, int& image_x_out, int& image_y_out)
     {
         // Calculate the x index
-        float y_mirror = -target_y_in;
+        float y_mirror = -camera_y_in;
         float y_translated = y_mirror - y_mirror_min;
         image_x_out = trunc(y_translated/x_pixel_delta);
 
         // Calculate the y index
-        int y_index_flipped = trunc(target_x_in/y_pixel_delta); // target frame has positive going up, but image frame has positive going down, so find y with positive up first, then flip it
+        int y_index_flipped = trunc(camera_x_in/y_pixel_delta); // target frame has positive going up, but image frame has positive going down, so find y with positive up first, then flip it
         image_y_out = (y_pixels - 1) - y_index_flipped;
     }
 
-    void imageToTarget(int image_x_in, int image_y_in, float& target_x_out, float& target_y_out)
+    void imageToCamera(int image_x_in, int image_y_in, float& camera_x_out, float& camera_y_out)
     {
         // Calculate the x position
         int y_index_flipped = (y_pixels - 1) - image_y_in;
-        target_x_out = (y_index_flipped*y_pixel_delta) + (y_pixel_delta/2); // place at middle of pixel
+        camera_x_out = (y_index_flipped*y_pixel_delta) + (y_pixel_delta/2); // place at middle of pixel
 
         // Calculate the y position
         float y_translated = (image_x_in*x_pixel_delta) + (x_pixel_delta/2); // place at middle of pixel
         float y_mirror = y_translated + y_mirror_min;
-        target_y_out = -y_mirror;
+        camera_y_out = -y_mirror;
     }
 
     // Overloaded function to handle 'double' inputs
-    void targetToImage(double& target_x_in, double& target_y_in, int& image_x_out, int& image_y_out)
+    void cameraToImage(double& camera_x_in, double& camera_y_in, int& image_x_out, int& image_y_out)
     {
         // Calculate the x index
-        double y_mirror = -target_y_in;
+        double y_mirror = -camera_y_in;
         double y_translated = y_mirror - y_mirror_min;
         image_x_out = trunc(y_translated/x_pixel_delta);
 
         // Calculate the y index
-        int y_index_flipped = trunc(target_x_in/y_pixel_delta); // camera frame has positive going up, but image frame has positive going down, so find y with positive up first, then flip it
+        int y_index_flipped = trunc(camera_x_in/y_pixel_delta); // camera frame has positive going up, but image frame has positive going down, so find y with positive up first, then flip it
         image_y_out = (y_pixels - 1) - y_index_flipped;
     }
     // Overloaded function to handle 'double' inputs
-    void imageToTarget(int image_x_in, int image_y_in, double& target_x_out, double& target_y_out)
+    void imageToCamera(int image_x_in, int image_y_in, double& camera_x_out, double& camera_y_out)
     {
         // Calculate the x position
         int y_index_flipped = (y_pixels - 1) - image_y_in;
-        target_x_out = (y_index_flipped*y_pixel_delta) + (y_pixel_delta/2); // place at middle of pixel
+        camera_x_out = (y_index_flipped*y_pixel_delta) + (y_pixel_delta/2); // place at middle of pixel
 
         // Calculate the y position
         double y_translated = (image_x_in*x_pixel_delta) + (x_pixel_delta/2); // place at middle of pixel
         double y_mirror = y_translated + y_mirror_min;
-        target_y_out = -y_mirror;
+        camera_y_out = -y_mirror;
     }
 
     void imageToAccumulator(int image_x_in, int image_y_in, int& accum_x_out, int& accum_y_out)
@@ -1169,6 +1216,83 @@ public:
 
         // Calculate the y index
         image_y_out = accum_y_in - radius_pixels;
+    }
+
+    void cameraToTarget(double camera_x_in, double camera_y_in, double& target_x_out, double& target_y_out)
+    {
+        /**
+         * Transforms a camera (x,y) point to an (x,y) point in the target
+         * frame
+         */
+
+        // Camera point
+        geometry_msgs::PointStamped camera_point;
+        camera_point.header.frame_id = camera_frame.c_str();
+        camera_point.point.x = camera_x_in;
+        camera_point.point.y = camera_y_in;
+
+        // Target point
+        geometry_msgs::PointStamped target_point;
+
+        // Get transform from camera to target frame
+        tf_listener.waitForTransform(camera_frame.c_str(), target_frame.c_str(), ros::Time::now(), ros::Duration(0.1));
+        try {
+            // Transform point
+            tf_listener.transformPoint(target_frame.c_str(), camera_point, target_point);
+        }
+        catch(tf::TransformException& ex) {
+            ROS_ERROR("Target Transform Exception: %s", ex.what());
+        }
+
+        // Extract target x and y
+        target_x_out = target_point.point.x;
+        target_y_out = target_point.point.y;
+    }
+
+    void targetToCamera(double target_x_in, double target_y_in, double& camera_x_out, double& camera_y_out)
+    {
+        /**
+         * Transforms a point in the target frame to a the camera frame
+         */
+
+        // Create ROS PointStamped for tf functions
+        geometry_msgs::PointStamped camera_point;
+        geometry_msgs::PointStamped target_point;
+        target_point.header.frame_id = target_frame.c_str();
+        target_point.point.x = target_x_in;
+        target_point.point.y = target_y_in;
+
+        // Get transform from target to camera frame
+        tf_listener.waitForTransform(target_frame.c_str(), camera_frame.c_str(), ros::Time(0), ros::Duration(0.1));
+        tf::StampedTransform transform;
+        try {
+            // Transform point
+            tf_listener.transformPoint(camera_frame.c_str(), target_point, camera_point);
+
+            // // DEBUG: check transform
+            // tf_listener.lookupTransform(camera_frame.c_str(), target_frame.c_str(), ros::Time(0), transform);
+            // std::cout << "Transform from " << transform.frame_id_ << " to " << transform.child_frame_id_ << ":\n";
+            // std::cout << transform.getOrigin()[0] << std::endl;
+            // std::cout << transform.getOrigin()[1] << std::endl;
+            // std::cout << transform.getOrigin()[2] << std::endl;
+            // std::cout << transform.getRotation()[0] << std::endl;
+            // std::cout << transform.getRotation()[1] << std::endl;
+            // std::cout << transform.getRotation()[2] << std::endl;
+            // std::cout << transform.getRotation()[3] << std::endl;
+        }
+        catch(tf::TransformException& ex) {
+            ROS_ERROR("Camera Transform Exception: %s", ex.what());
+        }
+
+        // Extract (x,y) positions from PointStamped
+        camera_x_out = camera_point.point.x;
+        camera_y_out = camera_point.point.y;
+
+        // // DEBUG: check tranform
+        // std::cout << "Target point (" << target_frame << ")\n";
+        // std::cout << "(" << target_x_in << ", " << target_y_in << ")" << std::endl;
+        // std::cout << "Target point (" << camera_frame << ")\n";
+        // std::cout << "(" << camera_x_out << ", " << camera_y_out << ")" << std::endl;
     }
 };
 

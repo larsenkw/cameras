@@ -13,23 +13,22 @@
         <rosparam file="$(find cameras)/calibrations/$(arg camera)_rgb.yaml" command="load" />
     </group>
 
+    <node pkg="tf" type="static_transform_publisher" name="camera_broadcaster" args="0.135 0.010 0.440 0.0 0.0 0.0 1.0 base_link astrapro_link 50" />
+
     <!-- RGB Image Node -->
     <!-- Run this launch file manually in a separate terminal to filter out the deprecation warning -->
     <!-- <include file="$(find usb_cam)/launch/astrapro_rgb.launch">
         <arg name="camera" value="$(arg camera)" />
     </include> -->
-    
     <!-- Depth Image Node -->
     <include file="$(find astra_launch)/launch/astrapro.launch">
         <arg name="camera" value="$(arg camera)" />
         <arg name="depth_registration" value="$(arg depth_registration)" />
     </include>
     
-    <!-- Transform for astrapro_link -->
-    <node pkg="tf"
-          type = "static_transform_publisher"
-          name = "camera_broadcaster"
-          args = "0.150 0.010 0.155 0 0 0 1 base_link astrapro_link 50" />
+    <!-- Start Turtlebot -->
+    <include file="$(find turtlebot_bringup)/launch/minimal.launch" />
+    <include file="$(find turtlebot_teleop)/launch/logitech.launch" />
     
     <!-- Camera Pose Node -->
     <node pkg="cameras" name="cylinder_detection" type="cylinder_detection" respawn="true" output="screen">
@@ -37,8 +36,13 @@
         <param name="debug" value="$(arg debug)" />
         <param name="display_image" value="$(arg display_image)" />
         <param name="camera" value="$(arg camera)" />
-        <param name="target_frame" value="odom" />
-        <param name="target_x" value="0.0" />
-        <param name="target_y" value="1.0" />
+        <!-- <param name="target_frame" value="odom" /> -->
+        <param name="target_frame" value="$(arg camera)_link" />
+        <param name="target_x" type="double" value="1.0" />
+        <param name="target_y" type="double" value="0.0" />
     </node>
+    
+    <!-- Velocity Controller Node -->
+    <node pkg="cameras" name="cylinder_vel" type="cylinder_vel.py"/>
+
 </launch>
