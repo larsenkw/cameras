@@ -88,7 +88,7 @@ find_package(OpenCV)
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
-INCLUDE_DIRS include
+INCLUDE_DIRS
 #  LIBRARIES neuro_gesture_kinect
   CATKIN_DEPENDS roscpp rospy geometry_msgs std_msgs sensor_msgs cv_bridge image_geometry
  # DEPENDS system_lib opencv3
@@ -100,7 +100,7 @@ INCLUDE_DIRS include
 
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
-include_directories(include)
+#include_directories(include)
 include_directories(${catkin_INCLUDE_DIRS})
 
 ## Declare a cpp library
