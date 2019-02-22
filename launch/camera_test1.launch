@@ -1,0 +1,24 @@
+<!-- Starts up all nodes for running the robot -->
+<launch>
+    <!-- Prints output messages to screen for all nodes -->
+    <arg name="debug" default="true" />
+
+    <!-- set names of sensors -->
+    <arg name="camera" default="astrapro" />
+
+    <!-- Load Camera Calibrations -->
+    <group ns="$(arg camera)/calibration_rgb">
+        <rosparam file="$(find cameras)/calibrations/$(arg camera)_rgb.yaml" command="load" />
+    </group>
+
+    <!-- Load markers -->
+    <rosparam file="$(find cameras)/markers/marker_list.yaml" command="load" />
+
+    <!-- Camera Node -->
+    <include file="$(find astra_launch)/launch/astrapro.launch">
+        <arg name="camera" value="$(arg camera)" />
+    </include>
+    <include file="$(find usb_cam)/launch/astrapro_rgb.launch" >
+        <arg name="camera" value="$(arg camera)" />
+    </include>
+</launch>

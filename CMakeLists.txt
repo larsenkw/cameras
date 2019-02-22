@@ -21,11 +21,15 @@ find_package(catkin REQUIRED COMPONENTS
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 find_package(OpenCV)
+#find_package(PCL 1.7 REQUIRED)
 
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
 ## See http://ros.org/doc/api/catkin/html/user_guide/setup_dot_py.html
 # catkin_python_setup()
+
+# Turn off PCL warnings (doesn't really work)
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-declarations")
 
 ################################################
 ## Declare ROS messages, services and actions ##
@@ -102,6 +106,9 @@ INCLUDE_DIRS
 ## Your package locations should be listed before other locations
 #include_directories(include)
 include_directories(${catkin_INCLUDE_DIRS})
+#include_directories(${PCL_INCLUDE_DIRS})
+#link_directories(${PCL_LIBRARY_DIRS})
+#add_definitions(${PCL_DEFINITIONS})
 
 ## Declare a cpp library
 # add_library(neuro_gesture_kinect
@@ -117,6 +124,9 @@ add_executable(camera_pose src/camera_pose.cpp)
 add_executable(camera_posev_last src/camera_posev_last.cpp)
 add_executable(camera_pose_marker_test src/camera_pose_marker_test.cpp)
 add_executable(pcl_testing src/pcl_testing.cpp)
+add_executable(pcd_publisher src/pcd_publisher.cpp)
+add_executable(cylinder_segmentation src/cylinder_segmentation2.cpp)
+add_executable(cylinder_detection src/cylinder_detection.cpp)
 
 
 ## Add cmake target dependencies of the executable/library
@@ -133,6 +143,9 @@ target_link_libraries(camera_pose ${catkin_LIBRARIES})
 target_link_libraries(camera_posev_last ${catkin_LIBRARIES})
 target_link_libraries(camera_pose_marker_test ${catkin_LIBRARIES})
 target_link_libraries(pcl_testing ${catkin_LIBRARIES})
+target_link_libraries(pcd_publisher ${catkin_LIBRARIES})
+target_link_libraries(cylinder_segmentation ${catkin_LIBRARIES}) # ${PCL_LIBARIES})
+target_link_libraries(cylinder_detection ${catkin_LIBRARIES})
 
 #############
 ## Install ##

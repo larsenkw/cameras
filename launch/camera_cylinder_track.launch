@@ -1,0 +1,51 @@
+<!-- Starts up all nodes for running a single camera -->
+<launch>
+    <!-- Prints output messages to screen for all nodes -->
+    <arg name="debug" default="false" />
+    <arg name="display_image" default="false" />
+    <arg name="depth_registration" default="false" />
+
+    <!-- set names of sensors -->
+    <arg name="camera" default="astrapro" />
+
+    <!-- Load Camera Calibrations -->
+    <group ns="$(arg camera)/calibration_rgb">
+        <rosparam file="$(find cameras)/calibrations/$(arg camera)_rgb.yaml" command="load" />
+    </group>
+
+    <node pkg="tf" type="static_transform_publisher" name="camera_broadcaster" args="0.135 0.010 0.440 0.0 0.0 0.0 1.0 base_link astrapro_link 50" />
+
+    <!-- RGB Image Node -->
+    <!-- Run this launch file manually in a separate terminal to filter out the deprecation warning -->
+    <!-- <include file="$(find usb_cam)/launch/astrapro_rgb.launch">
+        <arg name="camera" value="$(arg camera)" />
+    </include> -->
+    <!-- Depth Image Node -->
+    <include file="$(find astra_launch)/launch/astrapro.launch">
+        <arg name="camera" value="$(arg camera)" />
+        <arg name="depth_registration" value="$(arg depth_registration)" />
+    </include>
+    
+    <!-- Start Turtlebot -->
+    <include file="$(find turtlebot_bringup)/launch/minimal.launch" />
+    <include file="$(find turtlebot_teleop)/launch/logitech.launch" />
+    
+    <!-- Camera Pose Node -->
+    <arg name="cylinder_radius" value="0.200" />
+    <node pkg="cameras" name="cylinder_detection" type="cylinder_detection" respawn="true" output="screen">
+        <!-- <remap from="/camera/rgb/image_raw" to="/$(arg camera)/rgb/image_raw" /> -->
+        <param name="debug" value="$(arg debug)" />
+        <param name="display_image" value="$(arg display_image)" />
+        <param name="camera" value="$(arg camera)" />
+        <param name="cylinder_radius" type="double" value="$(arg cylinder_radius)" />
+        <param name="target_frame" value="$(arg camera)_link" />
+        <param name="target_x" type="double" value="1.0" />
+        <param name="target_y" type="double" value="0.0" />
+        <!-- increase the target tolerance for easier tracking -->
+        <param name="target_tolerance" type="double" value="$(eval 2.0 * arg('cylinder_radius'))" />
+    </node>
+    
+    <!-- Velocity Controller Node -->
+    <node pkg="cameras" name="cylinder_vel" type="cylinder_vel.py"/>
+
+</launch>
