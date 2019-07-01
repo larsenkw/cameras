@@ -13,6 +13,7 @@ find_package(catkin REQUIRED COMPONENTS
   cv_bridge
   image_geometry
   geometry_msgs
+  nav_msgs
   tf
   pcl_conversions
   pcl_ros
@@ -127,6 +128,7 @@ add_executable(pcl_testing src/pcl_testing.cpp)
 add_executable(pcd_publisher src/pcd_publisher.cpp)
 add_executable(cylinder_segmentation src/cylinder_segmentation2.cpp)
 add_executable(cylinder_detection src/cylinder_detection.cpp)
+add_executable(cylinder_detection_lidar src/cylinder_detection_lidar.cpp)
 
 
 ## Add cmake target dependencies of the executable/library
@@ -146,6 +148,7 @@ target_link_libraries(pcl_testing ${catkin_LIBRARIES})
 target_link_libraries(pcd_publisher ${catkin_LIBRARIES})
 target_link_libraries(cylinder_segmentation ${catkin_LIBRARIES}) # ${PCL_LIBARIES})
 target_link_libraries(cylinder_detection ${catkin_LIBRARIES})
+target_link_libraries(cylinder_detection_lidar ${catkin_LIBRARIES})
 
 #############
 ## Install ##
