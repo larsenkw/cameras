@@ -126,7 +126,7 @@ add_executable(camera_pose_marker_test src/camera_pose_marker_test.cpp)
 add_executable(pcl_testing src/pcl_testing.cpp)
 add_executable(pcd_publisher src/pcd_publisher.cpp)
 add_executable(cylinder_segmentation src/cylinder_segmentation2.cpp)
-add_executable(cylinder_detection src/cylinder_detection.cpp)
+add_executable(cylinder_detection_camera src/cylinder_detection_camera.cpp)
 
 
 ## Add cmake target dependencies of the executable/library
@@ -145,7 +145,7 @@ target_link_libraries(camera_pose_marker_test ${catkin_LIBRARIES})
 target_link_libraries(pcl_testing ${catkin_LIBRARIES})
 target_link_libraries(pcd_publisher ${catkin_LIBRARIES})
 target_link_libraries(cylinder_segmentation ${catkin_LIBRARIES}) # ${PCL_LIBARIES})
-target_link_libraries(cylinder_detection ${catkin_LIBRARIES})
+target_link_libraries(cylinder_detection_camera ${catkin_LIBRARIES})
 
 #############
 ## Install ##
