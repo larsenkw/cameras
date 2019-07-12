@@ -1,0 +1,2 @@
+Depth Camera Field of View
+58.59deg horizontal x 45.64deg vertical
